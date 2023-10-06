@@ -27,14 +27,6 @@ int main()
         return 0;
     }
 
-    // string buf = "Hello World";
-    // memset(&sin, 0, sizeof(sin));
-    // sin.sin_family = AF_INET;
-    // sin.sin_port = htons(20000 + 135); // 자기서브넷숫자
-    // sin.sin_addr.s_addr = inet_addr("127.0.0.1");
-    // int numBytes = sendto(s, buf.c_str(), buf.length(), 0, (struct sockaddr *)&sin, sizeof(sin));
-    // cout << "Sent: " << numBytes << endl;
-
     char buf2[65536];
     memset(&buf2, 0, sizeof(buf2));
 
@@ -45,22 +37,17 @@ int main()
         memset(&buf2, 0, sizeof(buf2));
         int numBytes = recvfrom(s, buf2, sizeof(buf2), 0, (struct sockaddr *)&sin, &sin_size);
         cout << "Recevied: " << numBytes << endl;
-        cout << "From " << inet_ntoa(sin.sin_addr) << endl;
-        cout << buf2 << endl << endl;
-
-        sleep(1); // 1초 딜레이
-
+        cout << "From " << inet_ntoa(sin.sin_addr) << ":";
+        cout << ntohs(sin.sin_port) << endl;
 
         /// 송신
-        memset(&sin, 0, sizeof(sin));
-        sin.sin_family = AF_INET;
-        sin.sin_addr.s_addr = inet_addr("127.0.0.1");
-        sin.sin_port = htons(20000 + 135); // 자기서브넷숫자
+        // memset(&sin, 0, sizeof(sin));
+        // sin.sin_family = AF_INET;
+        // sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+        // sin.sin_port = htons(20000 + 135); // 자기서브넷숫자
         numBytes = sendto(s, buf2, numBytes, 0, (struct sockaddr *)&sin, sizeof(sin));
         cout << "Sent: " << numBytes << endl;
         cout << buf2 << endl << endl;
-
-        sleep(1); // 1초 딜레이
     }
 
     close(s);

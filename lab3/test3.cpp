@@ -18,7 +18,7 @@ int main() {
     memset(&sin, 0, sizeof(sin));
 
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(10000);
+    sin.sin_port = htons(20000 + 135);
     sin.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     int numBytes = sendto(s, buf.c_str(), buf.length(), 0, (struct sockaddr *) &sin, sizeof(sin));
