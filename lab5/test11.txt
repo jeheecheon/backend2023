@@ -1,0 +1,6 @@
+While문 안에서 active socket을 1회 사용 후 close 하므로 
+같은 클라이언트가 다시 send를 보내면 새로운 active socket을 새로 생성하게 된다.
+
+만약 반복문 안에서 active socket을 close하지 않게 코딩하면
+clientSock 변수에 새로운 socket descriptor가 덮어쒸워진다. 
+1회만 사용한, 사용되지 않는 active socket들이 쌓이게 된다. (close 되지 않는 socket descriptor가 축적된다) 

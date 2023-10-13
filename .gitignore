@@ -2,4 +2,5 @@
 test*
 !test*.cpp
 !test*.py
+!test*.txt
 /lab4/mybinary
