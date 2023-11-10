@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <condition_variable>
 #include <iostream>
 #include <queue>
 #include <thread>
@@ -11,7 +12,22 @@
 
 using namespace std;
 
+atomic<bool> quit(false);
+
+queue<int> readableClientsQue;
+mutex readableClientsAddable;
+condition_variable readableClientsAdded;
+
+set<int> clientSocks;
+
+
 void handleMessages() { 
+    cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
+
+    while (quit.load() == false) {
+    }
+
+    cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 종료" << endl;
 
     return;
 }
@@ -89,10 +105,9 @@ int main(int argc, char* argv[]) {
     }
 
     set<unique_ptr<thread>> workers;
-    for (int i = 0; i < numOfWorkerThreads; ++i) {
-        cout << "메시지 작업 쓰레드 #" << i << " 생성" << endl;
+    for (int i = 0; i < numOfWorkerThreads; ++i)
         workers.insert(make_unique<thread>(handleMessages));
-    }
+    
 
     
     // Open 서버 소켓
@@ -123,9 +138,6 @@ int main(int argc, char* argv[]) {
     }
 
     cout << "Port 번호 " << port << "에서 서버 동작 중" << endl;
-
-
-    set<int> clientSocks;
 
     while (true) {
         fd_set rset;
@@ -171,41 +183,30 @@ int main(int argc, char* argv[]) {
             if (!FD_ISSET(clientSock, &rset))
                 continue;
 
-            // 이 연결로부터 데이터를 읽음
-            char buf[65536];
-
-            int numRecv = recv(clientSock, buf, sizeof(buf), 0);
-            if (numRecv == 0) {
-                cout << "Socket closed: " << clientSock << endl;
-                willClose.insert(clientSock);
-            } else if (numRecv < 0) {
-                cerr << "recv() failed: " << strerror(errno)
-                     << ", clientSock: " << clientSock << endl;
-                willClose.insert(clientSock);
-            } else {
-                cout << "Received: " << numRecv
-                     << " bytes, clientSock: " << clientSock << endl;
-
-                // 읽은 데이터를 그대로 돌려준다.
-                // send() 는 요청한 byte 수만큼 전송을 보장하지 않으므로
-                // 반복해서 send 를 호출해야 될 수 있다.
-                int offset = 0;
-                while (offset < numRecv) {
-                    int numSend =
-                        send(clientSock, buf + offset, numRecv - offset, 0);
-
-                    if (numSend < 0) {
-                        cerr << "send() failed: " << strerror(errno)
-                             << ", clientSock: " << clientSock << endl;
-                        willClose.insert(clientSock);
-                        break;
-                    } else {
-                        cout << "Sent: " << numSend
-                             << " bytes, clientSock: " << clientSock << endl;
-                        offset += numSend;
-                    }
-                }
+            clientSocks.erase(clientSock);
+            {
+                unique_lock<mutex> clientsQueLock(readableClientsAddable);
+                readableClientsQue.push(clientSock);
+                readableClientsAdded.notify_one();
             }
+
+            // // 이 연결로부터 데이터를 읽음
+            // char buf[65536];
+
+            // int numRecv = recv(clientSock, buf, sizeof(buf), 0);
+            // if (numRecv == 0) {
+            //     cout << "Socket closed: " << clientSock << endl;
+            //     willClose.insert(clientSock);
+            // } else if (numRecv < 0) {
+            //     cerr << "recv() failed: " << strerror(errno)
+            //          << ", clientSock: " << clientSock << endl;
+            //     willClose.insert(clientSock);
+            // } else {
+            //     cout << "Received: " << numRecv
+            //          << " bytes, clientSock: " << clientSock << endl;
+
+                
+            // }
         }
 
         // 닫아야 되는 소켓들 정리
@@ -215,9 +216,16 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    cout << "Main thread 종료 중" << endl;
+
     // Worker threads 정리
+    cout << "작업 쓰레드 join() 시작" << endl;
     for (auto& worker : workers)
-        if (worker->joinable()) worker->join();
+        if (worker->joinable()) {
+            cout << "작업 쓰레드 join() 시작" << endl;
+            worker->join();
+            cout << "작업 쓰레드 join() 완료" << endl;
+        }
 
     close(serverSock);
 
