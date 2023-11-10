@@ -12,19 +12,26 @@
 
 using namespace std;
 
-atomic<bool> quit(false);
+// 전역 변수로서 시그널이 수신되었는지를 나타내는 플래그
+volatile atomic<bool> signalReceived(false);
 
-queue<int> readableClientsQue;
-mutex readableClientsAddable;
-condition_variable readableClientsAdded;
+queue<int> readableClientsQueue;
+mutex readableClientsQueueEditable;
+condition_variable readableClientsEdited;
 
-set<int> clientSocks;
+set<int> clientSocksSet;
 
+
+void handleSignal(int signum) {
+    if (signum == SIGINT)
+        signalReceived.store(true);
+}
 
 void handleMessages() { 
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
-    while (quit.load() == false) {
+    while (signalReceived.load() == false) {
+        
     }
 
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 종료" << endl;
@@ -104,12 +111,9 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    set<unique_ptr<thread>> workers;
-    for (int i = 0; i < numOfWorkerThreads; ++i)
-        workers.insert(make_unique<thread>(handleMessages));
-    
+    // SIGINT 시그널에 대한 핸들러 등록
+    signal(SIGINT, handleSignal);
 
-    
     // Open 서버 소켓
     int serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -139,14 +143,18 @@ int main(int argc, char* argv[]) {
 
     cout << "Port 번호 " << port << "에서 서버 동작 중" << endl;
 
-    while (true) {
+    set<unique_ptr<thread>> workers;
+    for (int i = 0; i < numOfWorkerThreads; ++i)
+        workers.insert(make_unique<thread>(handleMessages));
+        
+    while (signalReceived.load() == false) {
         fd_set rset;
         FD_ZERO(&rset);            
         FD_SET(serverSock, &rset); 
 
         int maxFd = serverSock;
 
-        for (int clientSock : clientSocks) {
+        for (int clientSock : clientSocksSet) {
             FD_SET(clientSock, &rset);
 
             if (clientSock > maxFd) 
@@ -169,7 +177,7 @@ int main(int argc, char* argv[]) {
             if (clientSock < 0)
                 cerr << "accept() failed: " << strerror(errno) << endl;
             else {
-                clientSocks.insert(clientSock);
+                clientSocksSet.insert(clientSock);
                 cout << "새로운 클라이언트 접속 [(" << inet_ntoa(sin.sin_addr) << ", " <<
                 ntohs(sin.sin_port) << "):None]" << endl;
             }
@@ -179,15 +187,15 @@ int main(int argc, char* argv[]) {
         //   1) 실제 읽을 데이터가 있거나
         //   2) 소켓이 닫힌 경우이다.
         set<int> willClose;
-        for (int clientSock : clientSocks) {
+        for (int clientSock : clientSocksSet) {
             if (!FD_ISSET(clientSock, &rset))
                 continue;
 
-            clientSocks.erase(clientSock);
+            clientSocksSet.erase(clientSock);
             {
-                unique_lock<mutex> clientsQueLock(readableClientsAddable);
-                readableClientsQue.push(clientSock);
-                readableClientsAdded.notify_one();
+                unique_lock<mutex> clientsQueLock(readableClientsQueueEditable);
+                readableClientsQueue.push(clientSock);
+                readableClientsEdited.notify_one();
             }
 
             // // 이 연결로부터 데이터를 읽음
@@ -209,17 +217,16 @@ int main(int argc, char* argv[]) {
             // }
         }
 
-        // 닫아야 되는 소켓들 정리
+        // 닫아야 되는 클라이언트 소켓들 정리
         for (int clientSock : willClose) {
             close(clientSock);
-            clientSocks.erase(clientSock);
+            clientSocksSet.erase(clientSock);
         }
     }
 
     cout << "Main thread 종료 중" << endl;
 
     // Worker threads 정리
-    cout << "작업 쓰레드 join() 시작" << endl;
     for (auto& worker : workers)
         if (worker->joinable()) {
             cout << "작업 쓰레드 join() 시작" << endl;
@@ -227,6 +234,9 @@ int main(int argc, char* argv[]) {
             cout << "작업 쓰레드 join() 완료" << endl;
         }
 
+    // 소켓 정리
+    for (int clientSock : clientSocksSet) 
+        close(clientSock);
     close(serverSock);
 
     return 0;
