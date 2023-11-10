@@ -1,28 +1,9 @@
-#include <string>
-#include <set>
-
-#include "Room.h"
-#include "User.h"
+#include "../include/Room.h"
 
 using namespace std;
 
-class Room {
-private:
-    const set<User> usersInThisRoom;
+Room::Room() {}
 
-public:
-    Room() {
-    }
+Room::~Room() {}
 
-    ~Room() {
-    }
-
-    // Getter for usersInThisRoom
-    const std::set<User>& getUsersInThisRoom() const {
-        return usersInThisRoom;
-    }
-
-    bool IsThisRoomEmpty() const {
-        return usersInThisRoom.empty();
-    }
-};
+bool Room::IsThisRoomEmpty() const { return clientsInThisRoom.empty(); }

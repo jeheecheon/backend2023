@@ -1,18 +1,24 @@
 #pragma once
 
-#include <set>
+#ifndef ROOM_H
+#define ROOM_H
 
-class User; // 전방 선언
+#include <set>
+#include <string>
+
+#include "Client.h"
+
+class Client;  // 전방 선언
 
 class Room {
-private:
-    std::set<User*> usersInThisRoom; // User 포인터
+   public:
+    std::set<Client*> clientsInThisRoom;
 
-public:
+   public:
     Room();
     ~Room();
 
-    // Getter methods
-    const std::set<User*>& getUsersInThisRoom() const;
     bool IsThisRoomEmpty() const;
 };
+
+#endif // ROOM_H

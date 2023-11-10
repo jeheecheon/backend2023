@@ -1,32 +1,22 @@
-#include <arpa/inet.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
-#include <cstring>
-#include <iostream>
+#include "../include/SmallWorkHandler.h"
+
 #include <thread>
-#include <mutex>
 
-#include "include/GlobalVariables.h"
-#include "include/Work.h"
-#include "include/SmallWorkHandler.h"
+#include "../include/ChatServer.h"
+#include "../protobuf/message.pb.h"
+#include "../rapidjson/document.h"
+#include "../rapidjson/stringbuffer.h"
+#include "../rapidjson/writer.h"
 
-#include "protobuf/message.pb.h"
-#include "rapidjson/document.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
-
-using namespace std;
 using namespace rapidjson;
-
+using namespace std;
 
 void HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
     while (signalReceived.load() == false) {
-        Work work;
+        SmallWork work;
         {
             unique_lock<mutex> messagesQueueLock(messagesQueueMutex);
             while (messagesQueue.empty())
