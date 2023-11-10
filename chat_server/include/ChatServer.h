@@ -13,13 +13,14 @@
 #include "../include/MessageHandlers.h"
 #include "../include/SmallWorkHandler.h"
 #include "GlobalVariables.h"
+#include "Client.h"
 
 using namespace std;
 
 class ChatServer {
    private:
     int _serverSocket;
-    std::set<int> _clientSocks;
+    set<Client> _clients;
     int _port;
     bool _isBinded;
 

@@ -4,26 +4,27 @@
 #define USER_H
 
 #include <string>
+#include <arpa/inet.h>
+
+using namespace std;
 
 class Room;
 
 class Client {
-   private:
-    Room* _roomThisUserIn;  // Room 포인터
-    std::string _clientName;
-    int _connectedSocNum;
+public:
+    Room* roomThisUserIn;  // Room 포인터
+    int socketNumber;
+    std::string clientName;
+    string ipAddress;
+    in_port_t port;
 
-   public:
+public:
     Client();
     ~Client();
 
-    // Getter and Setter methods
-    Room* getRoomThisUserIn() const;
-    void setRoomThisUserIn(Room* room);
-    const std::string& getClientName() const;
-    void setClientName(const std::string& clientName);
-    int getConnectedSocNum() const;
-    void setConnectedSocNum(int connectedSocNum);
+    string PortAndIpIntoString();
+    string PortAndIpAndNameToString();
+    bool operator<(const Client& other) const;
 };
 
 #endif 

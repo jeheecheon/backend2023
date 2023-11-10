@@ -2,20 +2,20 @@
 
 using namespace std;
 
-Client::Client() {}
+Client::Client() {
+    clientName = "None";
+}
 
 Client::~Client() {}
 
-// Getter for _userName
-const string& Client::getClientName() const { return _clientName; }
+string Client::PortAndIpIntoString() {
+    return "(" + ipAddress + ", " + to_string(ntohs(port)) + ")";
+}
 
-// Setter for _userName
-void Client::setClientName(const string& clientName) { _clientName = clientName; }
+string Client::PortAndIpAndNameToString() {
+    return "[" + PortAndIpIntoString() + ":" + clientName + "]"; 
+}
 
-// Getter for _connectedSocNum
-int Client::getConnectedSocNum() const { return _connectedSocNum; }
-
-// Setter for _connectedSocNum
-void Client::setConnectedSocNum(int connectedSocNum) {
-    _connectedSocNum = connectedSocNum;
+bool Client::operator<(const Client& other) const {
+    return socketNumber < other.socketNumber;
 }

@@ -39,8 +39,7 @@ bool ChatServer::OpenServerSocket() {
     _serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     int on = 1;
-    if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) <
-        0) {
+    if (setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
         cerr << "setsockopt() failed: " << strerror(errno) << endl;
         return false;
     }
@@ -53,8 +52,7 @@ bool ChatServer::OpenServerSocket() {
 }
 
 // 특정 TCP Port 에 bind
-bool ChatServer::BindServerSocket(int port,
-                                  in_addr_t addr) {  // port, INADDR_ANY
+bool ChatServer::BindServerSocket(int port, in_addr_t addr) {  // port, INADDR_ANY
     if (_serverSocket == -1) return false;
 
     struct sockaddr_in sin;
@@ -97,10 +95,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
         int maxFd = _serverSocket;
 
-        for (int clientSock : _clientSocks) {
-            FD_SET(clientSock, &rset);
+        for (auto& client : _clients) {
+            FD_SET(client.socketNumber, &rset);
 
-            if (clientSock > maxFd) maxFd = clientSock;
+            if (client.socketNumber > maxFd) 
+                maxFd = client.socketNumber;
         }
 
         int numReady = select(maxFd + 1, &rset, NULL, NULL, NULL);
@@ -119,16 +118,20 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (clientSock < 0)
                 cerr << "accept() failed: " << strerror(errno) << endl;
             else {
-                _clientSocks.insert(clientSock);
+                Client client;
+                client.ipAddress = string(inet_ntoa(sin.sin_addr));
+                client.port = sin.sin_port;
+                client.socketNumber = clientSock;
 
-                cout << "새로운 클라이언트 접속 [(" << inet_ntoa(sin.sin_addr)
-                     << ", " << ntohs(sin.sin_port) << "):None]" << endl;
+                _clients.insert(client);
+
+                cout << "새로운 클라이언트 접속 " << client.PortAndIpAndNameToString() << endl;
             }
         }
 
         // 클라이언트 소켓에 읽기 이벤트가 발생한 게 있는지
-        for (int clientSock : _clientSocks) {
-            if (!FD_ISSET(clientSock, &rset)) continue;
+        for (auto& client : _clients) {
+            if (!FD_ISSET(client.socketNumber, &rset)) continue;
 
             char data[65565];
             int numRecv;
@@ -137,37 +140,45 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             memset(data, 0, sizeof(data));
 
             // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
-            if (!_CustomReceive(clientSock, &bytesToReceive,
-                                sizeof(bytesToReceive), numRecv))
+            if (!_CustomReceive(client.socketNumber, &bytesToReceive, sizeof(bytesToReceive), numRecv))
                 continue;
 
             // 나머지 데이터를 모두 읽어옴
-            if (!_CustomReceive(clientSock, data, bytesToReceive, numRecv))
+            if (!_CustomReceive(client.socketNumber, data, bytesToReceive, numRecv))
                 continue;
             {
                 lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
-                // 아직 해당 소켓의 메시지가 처리되지 못했는지 확인
-                if (socketsOnQueue.find(clientSock) != socketsOnQueue.end())
+                // 아직 해당 소켓의 과거 메시지가 처리되지 못 했는지 확인
+                if (socketsOnQueue.find(client.socketNumber) != socketsOnQueue.end())
                     continue;
             }
             {
                 lock_guard<mutex> messagesQueueLock(messagesQueueMutex);
-
-                socketsOnQueue.insert(clientSock);
-                messagesQueue.push({data, clientSock});
+                messagesQueue.push({data, client.socketNumber}); // 메시지를 작업 큐에 삽입
+                socketsOnQueue.insert(client.socketNumber); // 해당 소켓을 다른 자료구조에 보관. 소켓마다 전달되는 메시지를 순서대로 처리해주기 위함.
                 messagesQueueEdited.notify_one();
-                cout << "pushed" << endl;
             }
         }
 
+        // 닫힌 소켓 정리
         for (int clientSock : _willClose) {
             cout << "Closed: " << clientSock << endl;
             close(clientSock);
-            _clientSocks.erase(clientSock);
+
+            // 해당 소켓(포트번호와 아이피)을 사용 했던 유저 제거
+            Client* clientToDelete = NULL;
+            for (auto client : _clients)
+                if (client.socketNumber == clientSock) {
+                    clientToDelete = &client;
+                    break;
+                }
+            if (clientToDelete != NULL)
+                _clients.erase(*clientToDelete);
         }
         _willClose.clear();
     }
 }
+
 
 ChatServer::ChatServer() {
     _serverSocket = -1;
@@ -179,7 +190,8 @@ ChatServer::~ChatServer() {
     cout << "작업 Thread 정리 중" << endl;
 
     // 소켓 정리
-    for (int clientSock : _clientSocks) close(clientSock);
+    for (auto& client : _clients) 
+        close(client.socketNumber);
     close(_serverSocket);
 
     // Worker threads 정리

@@ -11,10 +11,12 @@
 class Client;  // 전방 선언
 
 class Room {
-   public:
+public:
     std::set<Client*> clientsInThisRoom;
+    string title;
+    int clientsCount;
 
-   public:
+public:
     Room();
     ~Room();
 
