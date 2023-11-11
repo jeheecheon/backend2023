@@ -18,13 +18,12 @@ volatile atomic<bool> signalReceived(false);
 unordered_map<const char*, MessageHandler> jsonHandlers;
 unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
 
-
 int main(int argc, char* argv[]) {
     // option 입력 방법 출력
     cout << endl
          << "--format: <json|protobuf>: 메시지 포맷\n\
     (default: 'json')\n\
---Port: 서버 Port 번호\n\
+--port: 서버 Port 번호\n\
     (an integer)\n\
 --workers: 작업 쓰레드 숫자\n\
     (default: '2')\n\
@@ -87,41 +86,17 @@ int main(int argc, char* argv[]) {
     }
     // 입력오류인 경우
     if (isInputError || port == -1) {
-        cerr << "FATAL Flags parsing error: flag --Port=None: Flag --Port must "
-                "have a value other than None."
-             << endl;
+        cerr << "FATAL Flags parsing error: " <<
+        endl << "Flag --port must have a value other than None." << 
+        endl << "Flag --workers must hava a numeric value." << 
+        endl << "Flag --format must be either json or protobuf." << endl;
         return -1;
-    }
-
-    if (IsJson) {
-        // JSON handler 등록
-        jsonHandlers["CSName"] = OnCsName;
-        jsonHandlers["CSRooms"] = OnCsRooms;
-        jsonHandlers["CSCreateRoom"] = OnCsCreateRoom;
-        jsonHandlers["CSJoinRoom"] = OnCsJoinRoom;
-        jsonHandlers["CSLeaveRoom"] = OnCsLeaveRoom;
-        jsonHandlers["CSChat"] = OnCsChat;
-        jsonHandlers["CSShutdown"] = OnCsShutDown;
-    } else {
-        // Protobuf handler 등록
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] =
-        OnCsName;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] =
-        OnCsRooms;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM]
-        = OnCsCreateRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] =
-        OnCsJoinRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM]
-        = OnCsLeaveRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] =
-        OnCsChat;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] =
-        OnCsShutDown;
     }
 
     // 서버 세팅
     ChatServer chatServer;
+    chatServer.ConfigureMsgHandlers(IsJson);
+
     if (!chatServer.OpenServerSocket()) 
         return -1;
     if (!chatServer.BindServerSocket(port, INADDR_ANY)) 

@@ -6,12 +6,14 @@
 #include <unistd.h>
 
 #include "../include/SmallWork.h"
-#include "../include/SmallWorkHandler.h"
+#include "../rapidjson/document.h"
+#include "../rapidjson/stringbuffer.h"
+#include "../rapidjson/writer.h"
 
+using namespace rapidjson;
 using namespace std;
 
-bool ChatServer::_CustomReceive(int clientSock, void* buf, size_t size,
-                                int& numRecv) {
+bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
     numRecv = recv(clientSock, buf, size, 0);
 
     if (numRecv == 0) {
@@ -67,11 +69,11 @@ bool ChatServer::BindServerSocket(int port, in_addr_t addr) {  // port, INADDR_A
     }
 
     _port = port;
-    return true;
+    return _isBinded = true;
 }
 
 bool ChatServer::Start(int numOfWorkerThreads) {
-    if (_serverSocket == -1 || _isBinded || _port == -1) return false;
+    if (_serverSocket == -1 || !_isBinded || _port == -1) return false;
 
     // 서버 소켓을 passive socket 으로 변경
     if (listen(_serverSocket, 10) < 0) {
@@ -140,11 +142,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             memset(data, 0, sizeof(data));
 
             // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
-            if (!_CustomReceive(client.socketNumber, &bytesToReceive, sizeof(bytesToReceive), numRecv))
+            if (!CustomReceive(client.socketNumber, &bytesToReceive, sizeof(bytesToReceive), numRecv))
                 continue;
 
             // 나머지 데이터를 모두 읽어옴
-            if (!_CustomReceive(client.socketNumber, data, bytesToReceive, numRecv))
+            if (!CustomReceive(client.socketNumber, data, bytesToReceive, numRecv))
                 continue;
             {
                 lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
@@ -179,6 +181,103 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     }
 }
 
+// 핸들러들을 설정
+// ConfigureHandlers(true); // JSON 핸들러 설정
+// ConfigureHandlers(false); // Protobuf 핸들러 설정
+void ChatServer::ConfigureMsgHandlers(bool IsJson) {
+    if (IsJson) {
+        // JSON handler 등록
+        jsonHandlers["CSName"] = OnCsName;
+        jsonHandlers["CSRooms"] = OnCsRooms;
+        jsonHandlers["CSCreateRoom"] = OnCsCreateRoom;
+        jsonHandlers["CSJoinRoom"] = OnCsJoinRoom;
+        jsonHandlers["CSLeaveRoom"] = OnCsLeaveRoom;
+        jsonHandlers["CSChat"] = OnCsChat;
+        jsonHandlers["CSShutdown"] = OnCsShutDown;
+    } else {
+        // Protobuf handler 등록
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] =
+            OnCsName;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] =
+            OnCsRooms;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM] =
+            OnCsCreateRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] =
+            OnCsJoinRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM] =
+            OnCsLeaveRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] =
+            OnCsChat;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] =
+            OnCsShutDown;
+    }
+}
+
+void ChatServer::HandleSmallWork() {
+    cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
+
+    while (signalReceived.load() == false) {
+        SmallWork work;
+        {
+            unique_lock<mutex> messagesQueueLock(messagesQueueMutex);
+            while (messagesQueue.empty())
+                messagesQueueEdited.wait(messagesQueueLock);
+
+            work = messagesQueue.front();
+            messagesQueue.pop();
+        }
+
+        if (IsJson) {
+            Document jsonDoc;
+            jsonDoc.Parse(work.dataToParse);
+
+            if (jsonDoc.HasParseError()) {
+                cerr << "Failed to parse JSON data." << endl;
+            }
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            jsonDoc.Accept(writer);
+            cout << "JSON Data: " << buffer.GetString() << endl;
+
+            // // Json 데이터 Type 멤버의 값 접근
+            // if (jsonDoc.HasMember("type") && jsonDoc["type"].IsString()) {
+            //     const char* typeValue = jsonDoc["type"].GetString();
+            //     // jsonHandlers[typeValue]();
+            //     cout << typeValue << endl;
+            // } else
+            //     cerr << "Missing or invalid 'type' key in JSON data." <<
+            //     endl;
+
+        } else {  // protobuf로 처리중인 경우
+            // protobuf 는 두 개의 메시지로 분리하여 전송 받음
+            // 첫 번째 메시지가 MessageType
+            // 두 번째 메시지는 세부 타입이다
+
+            mju::Type type;
+            type.ParseFromString(work.dataToParse);
+            mju::Type::MessageType messageType(type.type());
+
+            switch (messageType) {
+                case 0:
+                    mju::CSName* csName = new mju::CSName;
+                    csName->ParseFromString(work.dataToParse);
+                    cout << csName->name().length() << endl;
+                    break;
+            }
+
+            protobufHandlers[messageType](work.dataToParse);
+        }
+        {
+            lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
+            socketsOnQueue.erase(work.dataOwner);
+        }
+    }
+
+    cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 종료" << endl;
+
+    return;
+}
 
 ChatServer::ChatServer() {
     _serverSocket = -1;
