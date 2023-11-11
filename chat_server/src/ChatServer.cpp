@@ -13,29 +13,6 @@
 using namespace rapidjson;
 using namespace std;
 
-bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
-    numRecv = recv(clientSock, buf, size, 0);
-
-    if (numRecv == 0) {
-        cout << "Socket closed: " << clientSock << endl;
-        {
-            _willClose.insert(clientSock);
-            return false;
-        }
-    } else if (numRecv < 0) {
-        cerr << "recv() failed: " << strerror(errno)
-             << ", clientSock: " << clientSock << endl;
-        {
-            _willClose.insert(clientSock);
-            return false;
-        }
-    }
-    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock
-         << endl;
-
-    return true;
-}
-
 // Open 서버 소켓
 bool ChatServer::OpenServerSocket() {
     _serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -97,7 +74,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
         int maxFd = _serverSocket;
 
-        for (auto& client : _clients) {
+        for (auto& client : clients) {
             FD_SET(client.socketNumber, &rset);
 
             if (client.socketNumber > maxFd) 
@@ -125,14 +102,14 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 client.port = sin.sin_port;
                 client.socketNumber = clientSock;
 
-                _clients.insert(client);
+                clients.insert(client);
 
                 cout << "새로운 클라이언트 접속 " << client.PortAndIpAndNameToString() << endl;
             }
         }
 
         // 클라이언트 소켓에 읽기 이벤트가 발생한 게 있는지
-        for (auto& client : _clients) {
+        for (auto& client : clients) {
             if (!FD_ISSET(client.socketNumber, &rset)) continue;
 
             char data[65565];
@@ -169,16 +146,39 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
             // 해당 소켓(포트번호와 아이피)을 사용 했던 유저 제거
             Client* clientToDelete = NULL;
-            for (auto client : _clients)
+            for (auto client : clients)
                 if (client.socketNumber == clientSock) {
                     clientToDelete = &client;
                     break;
                 }
             if (clientToDelete != NULL)
-                _clients.erase(*clientToDelete);
+                clients.erase(*clientToDelete);
         }
         _willClose.clear();
     }
+}
+
+bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
+    numRecv = recv(clientSock, buf, size, 0);
+
+    if (numRecv == 0) {
+        cout << "Socket closed: " << clientSock << endl;
+        {
+            _willClose.insert(clientSock);
+            return false;
+        }
+    } else if (numRecv < 0) {
+        cerr << "recv() failed: " << strerror(errno)
+             << ", clientSock: " << clientSock << endl;
+        {
+            _willClose.insert(clientSock);
+            return false;
+        }
+    }
+    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock
+         << endl;
+
+    return true;
 }
 
 // 핸들러들을 설정
@@ -279,6 +279,12 @@ void ChatServer::HandleSmallWork() {
     return;
 }
 
+ChatServer& ChatServer::CreateInstance() {
+    if (instance == NULL)
+        instance = make_unique<ChatServer>();
+    return *instance;
+}
+
 ChatServer::ChatServer() {
     _serverSocket = -1;
     _isBinded = false;
@@ -289,7 +295,7 @@ ChatServer::~ChatServer() {
     cout << "작업 Thread 정리 중" << endl;
 
     // 소켓 정리
-    for (auto& client : _clients) 
+    for (auto& client : clients) 
         close(client.socketNumber);
     close(_serverSocket);
 

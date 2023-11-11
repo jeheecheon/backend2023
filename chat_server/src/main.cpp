@@ -94,7 +94,8 @@ int main(int argc, char* argv[]) {
     }
 
     // 서버 세팅
-    ChatServer chatServer;
+    ChatServer chatServer = ChatServer::CreateInstance();
+    
     chatServer.ConfigureMsgHandlers(IsJson);
 
     if (!chatServer.OpenServerSocket()) 
