@@ -18,10 +18,13 @@ using namespace std;
 ChatServer* ChatServer::_instance = nullptr;
 
 bool ChatServer::isJson = true;
-vector<Room> ChatServer::rooms;
 
 
-set<User> ChatServer::users;
+set<shared_ptr<Room>> ChatServer::rooms;
+mutex ChatServer::roomsMutex;
+
+
+set<shared_ptr<User>> ChatServer::users;
 mutex ChatServer::usersMutex;
 
 
@@ -127,15 +130,15 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (clientSock < 0)
                 cerr << "accept() failed: " << strerror(errno) << endl;
             else {
-                User user;
-                user.ipAddress = string(inet_ntoa(sin.sin_addr));
-                user.port = sin.sin_port;
-                user.socketNumber = clientSock;
+                shared_ptr<User> user = make_shared<User>();
+                user->ipAddress = string(inet_ntoa(sin.sin_addr));
+                user->port = sin.sin_port;
+                user->socketNumber = clientSock;
 
                 {
                     lock_guard<mutex> usersLock(usersMutex);
                     users.insert(user);
-                    cout << "새로운 클라이언트 접속 " << user.PortAndIpAndNameToString() << endl;
+                    cout << "새로운 클라이언트 접속 " << user->PortAndIpAndNameToString() << endl;
                 }
 
                 _clients.insert(clientSock);
@@ -190,14 +193,12 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             close(clientSock);
             _clients.erase(clientSock);
 
-            {
-                // 해당 소켓(포트번호와 아이피)을 사용 했던 유저 정보 제거
+            shared_ptr<User> userFound;
+            if (!FindUserBySocketNum(clientSock, userFound)) 
+                cerr << "User 정보 없음" << endl;
+            else {
                 lock_guard<mutex> usersLock(usersMutex);
-                auto it = std::find_if(users.begin(), users.end(), [clientSock](const User& user) {
-                    return user.socketNumber == clientSock;
-                });
-                if (it != users.end())
-                    users.erase(it);
+                users.erase(userFound);
             }
 
             cout << "Closed: " << clientSock << endl;
@@ -288,8 +289,9 @@ void ChatServer::HandleSmallWork() {
                     if (typeValue == "CSName") {
                         if (jsonDoc.HasMember("name") && jsonDoc["name"].IsString()) {
                             string name = jsonDoc["name"].GetString();
-                            if (!name.empty())
+                            if (!name.empty()) {
                                 jsonHandlers[typeValue](work.dataOwner, (void*)name.c_str());
+                            }
                             else throw runtime_error("Empty name...");
                         }
                         else throw runtime_error("Empty name...");
@@ -360,18 +362,17 @@ void ChatServer::HandleSmallWork() {
 }
 
 // ! 주의: usersMutex 를 사용 중
-bool ChatServer::FindUserBySocketNum(int sock, User& user) {
-    User* userFound = nullptr;
+bool ChatServer::FindUserBySocketNum(int sock, shared_ptr<User>& user) {
+    shared_ptr<User> userFound = nullptr;
     {
         lock_guard<mutex> usersLock(usersMutex);
         for (auto u : users)
-            if (u.socketNumber == sock) {
-                userFound = &u;
+            if (u->socketNumber == sock) {
+                userFound = u;
                 break;
             }
-
         if (userFound != nullptr)
-            user = *userFound;
+            user = userFound;
     }
     return userFound != nullptr;
 }

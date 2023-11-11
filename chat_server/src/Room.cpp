@@ -2,8 +2,21 @@
 
 using namespace std;
 
-Room::Room() {}
+int Room::roomIdIncrementer = 0;
+
+Room::Room() {
+    roomId = ++roomIdIncrementer;
+}
+
+Room::Room(string title) {
+    roomId = ++roomIdIncrementer;
+    this->title = title;
+}
 
 Room::~Room() {}
 
-bool Room::IsThisRoomEmpty() const { return clientsInThisRoom.empty(); }
+bool Room::operator<(const Room& other) const {
+    return roomId < other.roomId;
+}
+
+bool Room::IsThisRoomEmpty() const { return usersInThisRoom.size() == 0; }

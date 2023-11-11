@@ -5,6 +5,7 @@
 
 #include <string>
 #include <arpa/inet.h>
+#include <memory>
 
 using namespace std;
 
@@ -12,7 +13,7 @@ class Room;
 
 class User {
 public:
-    Room* roomThisUserIn;  // Room 포인터
+    shared_ptr<Room> roomThisUserIn;  // Room 포인터
     int socketNumber;
     string userName;
     string ipAddress;
@@ -22,9 +23,10 @@ public:
     User();
     ~User();
 
-    string PortAndIpIntoString();
-    string PortAndIpAndNameToString();
+    string PortAndIpIntoString() const;
+    string PortAndIpAndNameToString() const;
     bool operator<(const User& other) const;
+    string GetUserName() const;
 };
 
 #endif 

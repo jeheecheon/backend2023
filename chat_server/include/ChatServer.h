@@ -35,14 +35,14 @@ public:
     
     // ----------------------------------------------
     // 현재 존재하는 방들 
-    static vector<Room> rooms; // 방 목록
+    static set<shared_ptr<Room>> rooms; // 방 목록
     static mutex roomsMutex;
     // ----------------------------------------------
 
 
     // ----------------------------------------------
     // 연결된 유저들  
-    static set<User> users; 
+    static set<shared_ptr<User>> users; 
     static mutex usersMutex;
     // ----------------------------------------------
 
@@ -111,7 +111,7 @@ public:
     // 찾은 결과는 user 변수에
     // 반환값은 성공 여부 true or false
     // ! 주의: usersMutex 를 사용 중
-    static bool FindUserBySocketNum(int sock, User& user);
+    static bool FindUserBySocketNum(int sock, shared_ptr<User>& user);
 
     static void CustomSend(int sock, void* dataToSend, int bytesToSend);
 
