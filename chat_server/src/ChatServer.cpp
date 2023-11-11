@@ -156,9 +156,21 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
                 continue;
 
-            // 나머지 데이터를 모두 읽어옴
+            if (numRecv != 2) {
+                cerr << "첫 두 바이트에는 항상 뒤따라오는 메시지의 바이트수가 들어있어야 함" << endl;
+                continue;
+            }
+
+            bytesToReceive = ntohs(bytesToReceive);
+
+            // 나머지 메시지 데이터를 모두 읽어옴
             if (!CustomReceive(client, data, bytesToReceive, numRecv))
                 continue;
+            if (numRecv != bytesToReceive) {
+                cerr << "메시지 일부 손실되었음..." << endl;
+                continue;
+            }
+
             {
                 lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
                 // 아직 해당 소켓의 과거 메시지가 처리되지 못 했는지 확인
@@ -195,7 +207,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 }
 
 bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
-    numRecv = recv(clientSock, buf, size, 0);
+    numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
 
     if (numRecv == 0) {
         cout << "Socket closed: " << clientSock << endl;
@@ -277,38 +289,38 @@ void ChatServer::HandleSmallWork() {
                         if (jsonDoc.HasMember("name") && jsonDoc["name"].IsString()) {
                             string name = jsonDoc["name"].GetString();
                             if (!name.empty())
-                                jsonHandlers[typeValue]((void*)name.c_str());
+                                jsonHandlers[typeValue](work.dataOwner, (void*)name.c_str());
                             else throw runtime_error("Empty name...");
                         }
                         else throw runtime_error("Empty name...");
                     } else if (typeValue == "CSRooms") {
-                        jsonHandlers[typeValue](nullptr);
+                        jsonHandlers[typeValue](work.dataOwner, nullptr);
                     } else if (typeValue == "CSCreateRoom") {
                         if (jsonDoc.HasMember("title") && jsonDoc["title"].IsString()) {
                             string title = jsonDoc["title"].GetString();
                             if (!title.empty())
-                                jsonHandlers[typeValue]((void*)title.c_str());
+                                jsonHandlers[typeValue](work.dataOwner, (void*)title.c_str());
                             else throw runtime_error("Empty title...");
                         }
                         else throw runtime_error("Empty title...");
                     } else if (typeValue == "CSJoinRoom") {
                         if (jsonDoc.HasMember("roomId") && jsonDoc["roomId"].IsInt()) {
                             int roomId = jsonDoc["roomId"].GetInt();
-                            jsonHandlers[typeValue]((void*)&roomId);
+                            jsonHandlers[typeValue](work.dataOwner, (void*)&roomId);
                         }
                         else throw runtime_error("No roomId provided or failed to parse JSON");
                     } else if (typeValue == "CSLeaveRoom") {
-                        jsonHandlers[typeValue](nullptr);
+                        jsonHandlers[typeValue](work.dataOwner, nullptr);
                     } else if (typeValue == "CSChat") {
                         if (jsonDoc.HasMember("text") && jsonDoc["text"].IsString()) {
                             string text = jsonDoc["text"].GetString();
                             if (!text.empty())
-                                jsonHandlers[typeValue]((void*)text.c_str());
+                                jsonHandlers[typeValue](work.dataOwner, (void*)text.c_str());
                             else throw runtime_error("Empty text...");
                         }
                         else throw runtime_error("Empty text...");
                     } else if (typeValue == "CSShutdown") {
-                        jsonHandlers[typeValue](nullptr);
+                        jsonHandlers[typeValue](work.dataOwner, nullptr);
                     }
                 } catch (runtime_error & ex) {
                     cerr << "Exception caught while parsing JSON.." << ex.what() <<  endl;
@@ -333,7 +345,7 @@ void ChatServer::HandleSmallWork() {
                     break;
             }
 
-            protobufHandlers[messageType](work.dataToParse);
+            protobufHandlers[messageType](work.dataOwner, work.dataToParse);
         }
         {
             // 해당 소켓의 메시지 처리를 마치고 다른 메시지를 처리 할 준비가 됨
@@ -345,6 +357,36 @@ void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 종료" << endl;
 
     return;
+}
+
+// ! 주의: usersMutex 를 사용 중
+bool ChatServer::FindUserBySocketNum(int sock, User& user) {
+    User* userFound = nullptr;
+    {
+        lock_guard<mutex> usersLock(usersMutex);
+        for (auto u : users)
+            if (u.socketNumber == sock) {
+                userFound = &u;
+                break;
+            }
+
+        if (userFound != nullptr)
+            user = *userFound;
+    }
+    return userFound != nullptr;
+}
+
+void ChatServer::CustomSend(int sock, void* dataToSend, int bytesToSend) {
+    int offset = 0;
+    while (offset < bytesToSend) {
+        int numSend = send(sock, (char*)dataToSend + offset, bytesToSend - offset, 0);
+        if (numSend < 0) {
+            cerr << "send() failed: " << strerror(errno) << endl;
+        } else {
+            cout << "Sent: " << numSend << endl;
+            offset += numSend;
+        }
+    }
 }
 
 ChatServer& ChatServer::CreateSingleton() {

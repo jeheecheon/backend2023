@@ -64,13 +64,21 @@ public:
 
     // ----------------------------------------------
     // Worker Thread의 MessageHandlers
-    typedef void (*MessageHandler)(const void* data);
+    typedef void (*MessageHandler)(int clientSock, const void* data);
     static unordered_map<string, MessageHandler> jsonHandlers;
     static unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
     // ----------------------------------------------
 
 private:
     ChatServer();
+
+    // recv 함수를 대신 호출한다. 예외처리를 대신 처리함
+    // clientSock - 값을 확인할 클라이언트 소켓 번호
+    // buf - 값을 담을 메모리 영역
+    // size - buf의 크기
+    // numRecv - 전달받은 값을 저장할 변수
+    // 반환값은 성공 여부 true or false
+    bool CustomReceive(int clientSock, void* buf, size_t size, int& numRecv);
 
 public:
     ~ChatServer();
@@ -90,14 +98,6 @@ public:
     // 반환값은 성공 여부 true or false
     bool Start(int numOfWorkerThreads);
 
-    // recv 함수를 대신 호출한다. 예외처리를 대신 처리함
-    // clientSock - 값을 확인할 클라이언트 소켓 번호
-    // buf - 값을 담을 메모리 영역
-    // size - buf의 크기
-    // numRecv - 전달받은 값을 저장할 변수
-    // 반환값은 성공 여부 true or false
-    bool CustomReceive(int clientSock, void* buf, size_t size, int& numRecv);
-
     // 핸들러들을 설정
     // ConfigureHandlers(true); // JSON 핸들러 설정
     // ConfigureHandlers(false); // Protobuf 핸들러 설정
@@ -106,6 +106,14 @@ public:
 public:
     //
     static void HandleSmallWork(); // Worker Thread의 Entry Point
+
+    // 전달된 소켓 번호와 일치하는 유저를 찾는다.
+    // 찾은 결과는 user 변수에
+    // 반환값은 성공 여부 true or false
+    // ! 주의: usersMutex 를 사용 중
+    static bool FindUserBySocketNum(int sock, User& user);
+
+    static void CustomSend(int sock, void* dataToSend, int bytesToSend);
 
     static ChatServer& CreateSingleton();
 

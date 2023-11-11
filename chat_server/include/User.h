@@ -14,7 +14,7 @@ class User {
 public:
     Room* roomThisUserIn;  // Room 포인터
     int socketNumber;
-    std::string userName;
+    string userName;
     string ipAddress;
     in_port_t port;
 
