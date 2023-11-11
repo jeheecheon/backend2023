@@ -12,7 +12,7 @@
 
 #include "../include/MessageHandlers.h"
 #include "GlobalVariables.h"
-#include "Client.h"
+#include "Room.h"
 
 using namespace std;
 
@@ -22,16 +22,29 @@ private:
     int _port; // 서버 소켓 port 번호
     bool _isBinded; // BindServerSocket 가 호출되어 성공되었는지
 
-    set<shared_ptr<thread>> workers;
-    // set<unique_ptr<thread>> workers; // Worker Threads
+    set<int> _clients; // 연결된 클라이언트들
+
+    set<unique_ptr<thread>> workers; // Worker Threads
+    
     unordered_set<int> _willClose; // 종료할 클라이언트 소켓 set
 
-    static ChatServer* _instance;
+    static ChatServer* _instance; // Singleton 인스턴
 
 public:
     static bool isJson; // JSON 포맷 = true, Protobuf 포맷 = false
-    static set<Client> clients; // 연결된 클라이언트들 
-    static vector<Client> rooms; // 방 목록
+    
+    // ----------------------------------------------
+    // 현재 존재하는 방들 
+    static vector<Room> rooms; // 방 목록
+    static mutex roomsMutex;
+    // ----------------------------------------------
+
+
+    // ----------------------------------------------
+    // 연결된 유저들  
+    static set<User> users; 
+    static mutex usersMutex;
+    // ----------------------------------------------
 
 
     // ----------------------------------------------

@@ -4,6 +4,7 @@
 #include <netinet/tcp.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <algorithm>
 
 #include "../include/SmallWork.h"
 #include "../rapidjson/document.h"
@@ -13,18 +14,25 @@
 using namespace rapidjson;
 using namespace std;
 
+
 ChatServer* ChatServer::_instance = nullptr;
 
 bool ChatServer::isJson = true;
-set<Client> ChatServer::clients;
-vector<Client> ChatServer::rooms;
+vector<Room> ChatServer::rooms;
+
+
+set<User> ChatServer::users;
+mutex ChatServer::usersMutex;
+
 
 queue<SmallWork> ChatServer::messagesQueue;
 mutex ChatServer::messagesQueueMutex;
 condition_variable ChatServer::messagesQueueEdited;
 
+
 unordered_set<int> ChatServer::socketsOnQueue;
 mutex ChatServer::socketsOnQueueMutex;
+
 
 unordered_map<string, ChatServer::MessageHandler> ChatServer::jsonHandlers;
 unordered_map<mju::Type::MessageType, ChatServer::MessageHandler> ChatServer::protobufHandlers;
@@ -85,8 +93,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     struct sockaddr_in sin;
 
     for (int i = 0; i < numOfWorkerThreads; ++i)
-        workers.insert(make_shared<thread>(HandleSmallWork));
-        // workers.insert(make_unique<thread>(HandleSmallWork));
+        workers.insert(make_unique<thread>(HandleSmallWork));
 
     //
     while (true) {
@@ -97,11 +104,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
         int maxFd = _serverSocket;
 
-        for (auto& client : clients) {
-            FD_SET(client.socketNumber, &rset);
+        for (auto& client : _clients) {
+            FD_SET(client, &rset);
 
-            if (client.socketNumber > maxFd) 
-                maxFd = client.socketNumber;
+            if (client > maxFd) 
+                maxFd = client;
         }
 
         int numReady = select(maxFd + 1, &rset, NULL, NULL, NULL);
@@ -120,20 +127,24 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (clientSock < 0)
                 cerr << "accept() failed: " << strerror(errno) << endl;
             else {
-                Client client;
-                client.ipAddress = string(inet_ntoa(sin.sin_addr));
-                client.port = sin.sin_port;
-                client.socketNumber = clientSock;
+                User user;
+                user.ipAddress = string(inet_ntoa(sin.sin_addr));
+                user.port = sin.sin_port;
+                user.socketNumber = clientSock;
 
-                clients.insert(client);
+                {
+                    lock_guard<mutex> usersLock(usersMutex);
+                    users.insert(user);
+                    cout << "새로운 클라이언트 접속 " << user.PortAndIpAndNameToString() << endl;
+                }
 
-                cout << "새로운 클라이언트 접속 " << client.PortAndIpAndNameToString() << endl;
+                _clients.insert(clientSock);
             }
         }
 
         // 클라이언트 소켓에 읽기 이벤트가 발생한 게 있는지
-        for (auto& client : clients) {
-            if (!FD_ISSET(client.socketNumber, &rset)) continue;
+        for (auto& client : _clients) {
+            if (!FD_ISSET(client, &rset)) continue;
 
             char data[65565];
             int numRecv;
@@ -142,40 +153,42 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             memset(data, 0, sizeof(data));
 
             // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
-            if (!CustomReceive(client.socketNumber, &bytesToReceive, sizeof(bytesToReceive), numRecv))
+            if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
                 continue;
 
             // 나머지 데이터를 모두 읽어옴
-            if (!CustomReceive(client.socketNumber, data, bytesToReceive, numRecv))
+            if (!CustomReceive(client, data, bytesToReceive, numRecv))
                 continue;
             {
                 lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
                 // 아직 해당 소켓의 과거 메시지가 처리되지 못 했는지 확인
-                if (socketsOnQueue.find(client.socketNumber) != socketsOnQueue.end())
+                if (socketsOnQueue.find(client) != socketsOnQueue.end())
                     continue;
+                socketsOnQueue.insert(client); // 해당소켓의 과거 메시지가 처리 중인지 확인하기 위해 다른 자료구조에 소켓을 보관
             }
             {
                 lock_guard<mutex> messagesQueueLock(messagesQueueMutex);
-                messagesQueue.push({data, client.socketNumber}); // 메시지를 작업 큐에 삽입
-                socketsOnQueue.insert(client.socketNumber); // 해당 소켓을 다른 자료구조에 보관. 소켓마다 전달되는 메시지를 순서대로 처리해주기 위함.
+                messagesQueue.push({data, client}); // 메시지를 작업 큐에 삽입
                 messagesQueueEdited.notify_one();
             }
         }
 
         // 닫힌 소켓 정리
         for (int clientSock : _willClose) {
-            cout << "Closed: " << clientSock << endl;
             close(clientSock);
+            _clients.erase(clientSock);
 
-            // 해당 소켓(포트번호와 아이피)을 사용 했던 유저 제거
-            Client* clientToDelete = NULL;
-            for (auto client : clients)
-                if (client.socketNumber == clientSock) {
-                    clientToDelete = &client;
-                    break;
-                }
-            if (clientToDelete != NULL)
-                clients.erase(*clientToDelete);
+            {
+                // 해당 소켓(포트번호와 아이피)을 사용 했던 유저 정보 제거
+                lock_guard<mutex> usersLock(usersMutex);
+                auto it = std::find_if(users.begin(), users.end(), [clientSock](const User& user) {
+                    return user.socketNumber == clientSock;
+                });
+                if (it != users.end())
+                    users.erase(it);
+            }
+
+            cout << "Closed: " << clientSock << endl;
         }
         _willClose.clear();
     }
@@ -323,6 +336,7 @@ void ChatServer::HandleSmallWork() {
             protobufHandlers[messageType](work.dataToParse);
         }
         {
+            // 해당 소켓의 메시지 처리를 마치고 다른 메시지를 처리 할 준비가 됨
             lock_guard<mutex> socketsOnQueueLock(socketsOnQueueMutex);
             socketsOnQueue.erase(work.dataOwner);
         }
@@ -349,8 +363,8 @@ ChatServer::~ChatServer() {
     cout << "작업 Thread 정리 중" << endl;
 
     // 소켓 정리
-    for (auto& client : clients) 
-        close(client.socketNumber);
+    for (auto& client : _clients) 
+        close(client);
     close(_serverSocket);
 
     // Worker threads 정리

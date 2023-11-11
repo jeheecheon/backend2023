@@ -6,8 +6,8 @@
 using namespace std;
 
 void OnCsName(const void* data) {
-
     cout << "OnCsName " << (char*)data << endl;
+    
     
 }
 

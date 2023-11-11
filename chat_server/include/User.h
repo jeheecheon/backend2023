@@ -10,21 +10,21 @@ using namespace std;
 
 class Room;
 
-class Client {
+class User {
 public:
     Room* roomThisUserIn;  // Room 포인터
     int socketNumber;
-    std::string clientName;
+    std::string userName;
     string ipAddress;
     in_port_t port;
 
 public:
-    Client();
-    ~Client();
+    User();
+    ~User();
 
     string PortAndIpIntoString();
     string PortAndIpAndNameToString();
-    bool operator<(const Client& other) const;
+    bool operator<(const User& other) const;
 };
 
 #endif 

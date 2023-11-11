@@ -6,13 +6,11 @@
 #include <set>
 #include <string>
 
-#include "Client.h"
-
-class Client;  // 전방 선언
+#include "User.h"
 
 class Room {
 public:
-    std::set<Client*> clientsInThisRoom;
+    std::set<User*> clientsInThisRoom;
     string title;
     int clientsCount;
 
