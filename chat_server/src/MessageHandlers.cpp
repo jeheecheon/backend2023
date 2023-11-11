@@ -328,12 +328,19 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 void OnCsChat(int clientSock, const void* data) {
     string text = (char*)data;
 
-
     // 해당 clientSock을 가지는 유저를 찾는다
     shared_ptr<User> user;
     if (!ChatServer::FindUserBySocketNum(clientSock, user)) {
         cerr << "Failed to find the matching user with sock num....!!!!!";
         return;
+    }
+
+    const char* userName;
+    bool isUserInRoom = false;
+    {
+        lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        isUserInRoom = user->roomThisUserIn != nullptr;
+        userName = user->GetUserName().c_str();
     }
 
     char* msgToSend = nullptr; // 보낼 메시지
@@ -345,20 +352,32 @@ void OnCsChat(int clientSock, const void* data) {
         rapidjson::Document jsonDoc;
         jsonDoc.SetObject();
 
-        // "type" : "SCSystemMessage" 추가
-        rapidjson::Value typeValue;
-        typeValue.SetString("SCChat", jsonDoc.GetAllocator());
-        jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
+        if (isUserInRoom) {
+            // "type" : "SCSystemMessage" 추가
+            rapidjson::Value typeValue;
+            typeValue.SetString("SCChat", jsonDoc.GetAllocator());
+            jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
 
-        // "member" : + 시스템 메시지 추가
-        rapidjson::Value memberValue;
-        memberValue.SetString(user->GetUserName().c_str(), jsonDoc.GetAllocator());
-        jsonDoc.AddMember("member", memberValue, jsonDoc.GetAllocator());
+            // "member" : + 시스템 메시지 추가
+            rapidjson::Value memberValue;
+            memberValue.SetString(userName, jsonDoc.GetAllocator());
+            jsonDoc.AddMember("member", memberValue, jsonDoc.GetAllocator());
 
-        // "text" : + 시스템 메시지 추가
-        rapidjson::Value textValue;
-        textValue.SetString(text.c_str(), jsonDoc.GetAllocator());
-        jsonDoc.AddMember("text", textValue, jsonDoc.GetAllocator());
+            // "text" : + 시스템 메시지 추가
+            rapidjson::Value textValue;
+            textValue.SetString(text.c_str(), jsonDoc.GetAllocator());
+            jsonDoc.AddMember("text", textValue, jsonDoc.GetAllocator());
+        } else {
+            // "type" : "SCSystemMessage" 추가
+            rapidjson::Value typeValue;
+            typeValue.SetString("SCSystemMessage", jsonDoc.GetAllocator());
+            jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
+
+            // "text" : + 시스템 메시지 추가
+            rapidjson::Value textValue;
+            textValue.SetString("현재 대화방에 들어가 있지 않습니다.", jsonDoc.GetAllocator());
+            jsonDoc.AddMember("text", textValue, jsonDoc.GetAllocator());
+        }
 
         // document 를 json string으로 변환
         rapidjson::StringBuffer buffer;
@@ -380,15 +399,22 @@ void OnCsChat(int clientSock, const void* data) {
 
     // 메시지 전송
     if (msgToSend != nullptr) {
-        {
-            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        {   
             {
-                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                lock_guard<mutex> usersLock(ChatServer::usersMutex);
+                {
+                    lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
 
-                for (auto& u : user->roomThisUserIn->usersInThisRoom)
-                    if (u->socketNumber != clientSock)
-                        ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
+                    if (isUserInRoom) {
+                        for (auto& u : user->roomThisUserIn->usersInThisRoom)
+                            if (u->socketNumber != clientSock)
+                                ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
+                    }
+                }
             }
+
+            if (!isUserInRoom)
+                ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
             
             delete[] msgToSend;
         }
