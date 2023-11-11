@@ -326,9 +326,73 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 }
 
 void OnCsChat(int clientSock, const void* data) {
+    string text = (char*)data;
 
 
-    cout << "OnCsChat" << (char*)data << endl;
+    // 해당 clientSock을 가지는 유저를 찾는다
+    shared_ptr<User> user;
+    if (!ChatServer::FindUserBySocketNum(clientSock, user)) {
+        cerr << "Failed to find the matching user with sock num....!!!!!";
+        return;
+    }
+
+    char* msgToSend = nullptr; // 보낼 메시지
+    short bytesToSend; // 보낼 데이터의 바이트 수
+
+    // json 포맷
+    if (ChatServer::isJson) {
+        // RapidJSON document 생성
+        rapidjson::Document jsonDoc;
+        jsonDoc.SetObject();
+
+        // "type" : "SCSystemMessage" 추가
+        rapidjson::Value typeValue;
+        typeValue.SetString("SCChat", jsonDoc.GetAllocator());
+        jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
+
+        // "member" : + 시스템 메시지 추가
+        rapidjson::Value memberValue;
+        memberValue.SetString(user->GetUserName().c_str(), jsonDoc.GetAllocator());
+        jsonDoc.AddMember("member", memberValue, jsonDoc.GetAllocator());
+
+        // "text" : + 시스템 메시지 추가
+        rapidjson::Value textValue;
+        textValue.SetString(text.c_str(), jsonDoc.GetAllocator());
+        jsonDoc.AddMember("text", textValue, jsonDoc.GetAllocator());
+
+        // document 를 json string으로 변환
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        jsonDoc.Accept(writer);
+        string jsonString = buffer.GetString();
+
+        // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
+        short msgBytesInBigEnndian = htons(jsonString.length());
+        bytesToSend = jsonString.length() + 2;
+        msgToSend = new char[bytesToSend];
+        memcpy(msgToSend, &msgBytesInBigEnndian, 2);
+        memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
+    }
+    // protobuf 포맷
+    else {
+
+    }
+
+    // 메시지 전송
+    if (msgToSend != nullptr) {
+        {
+            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            {
+                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+
+                for (auto& u : user->roomThisUserIn->usersInThisRoom)
+                    if (u->socketNumber != clientSock)
+                        ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
+            }
+            
+            delete[] msgToSend;
+        }
+    }
 }
 
 void OnCsShutDown(int clientSock, const void* data) {
