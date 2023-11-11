@@ -205,6 +205,9 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         }
         _willClose.clear();
     }
+    cout << "나는 나갔다" << endl;
+
+    return true;
 }
 
 bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
@@ -254,10 +257,22 @@ void ChatServer::ConfigureMsgHandlers() {
     }
 }
 
+void ChatServer::TerminateServer() {
+    {
+        lock_guard<mutex> messagesQueueLock(messagesQueueMutex);
+        while (workers.size() != 0) {
+            messagesQueue.push({nullptr, -1}); // 종료 신호
+        }
+        messagesQueueEdited.notify_all();
+    }
+
+    delete _instance;
+}
+
 void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
-    while (signalReceived.load() == false) {
+    while (true) {
         SmallWork work;
         {
             unique_lock<mutex> messagesQueueLock(messagesQueueMutex);
@@ -267,6 +282,10 @@ void ChatServer::HandleSmallWork() {
             work = messagesQueue.front();
             messagesQueue.pop();
         }
+
+        // socket번호가 -1인 경우 종료 신호
+        if (work.dataOwner == -1)
+            break;
 
         if (isJson) {
             Document jsonDoc;
@@ -418,8 +437,6 @@ ChatServer::~ChatServer() {
             cout << "작업 쓰레드 join() 완료" << endl;
         }
 
-    if (_instance != nullptr) {
-        delete _instance;
+    if (_instance != nullptr)
         _instance = nullptr;
-    }
 }

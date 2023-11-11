@@ -1,9 +1,13 @@
 #include "../include/ChatServer.h"
 
+void HandleTermination(int signum) {
+    std::cout << "Interrupt signal (" << signum << ") received.\n";
 
-// 전역 변수로서 시그널이 수신되었는지를 나타내는 플래그
-volatile atomic<bool> signalReceived(false);
+    ChatServer& chatServer = ChatServer::CreateSingleton();
+    
 
+    signal(signum, SIG_DFL);
+}
 
 int main(int argc, char* argv[]) {
     // option 입력 방법 출력
@@ -92,6 +96,8 @@ int main(int argc, char* argv[]) {
 
     if (!chatServer.BindServerSocket(port, INADDR_ANY)) 
         return -1;
+
+    signal(SIGINT, HandleTermination);
 
     //서버 시작
     if (!chatServer.Start(numOfWorkerThreads)) 

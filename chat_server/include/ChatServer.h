@@ -9,9 +9,15 @@
 
 #include <set>
 #include <thread>
+#include <unordered_set>
+#include <mutex>
+#include <unordered_map>
+#include <queue>
+#include <condition_variable>
 
+#include "SmallWork.h"
+#include "../protobuf/message.pb.h"
 #include "../include/MessageHandlers.h"
-#include "GlobalVariables.h"
 #include "Room.h"
 
 using namespace std;
@@ -103,6 +109,8 @@ public:
     // ConfigureHandlers(false); // Protobuf 핸들러 설정
     void ConfigureMsgHandlers();
 
+    // 채팅 서버 종료.
+    void TerminateServer();
 public:
     //
     static void HandleSmallWork(); // Worker Thread의 Entry Point
