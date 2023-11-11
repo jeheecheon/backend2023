@@ -19,6 +19,7 @@ ChatServer* ChatServer::_instance = nullptr;
 
 bool ChatServer::isJson = true;
 
+volatile atomic<bool> ChatServer::terminateSignal;
 
 set<shared_ptr<Room>> ChatServer::rooms;
 mutex ChatServer::roomsMutex;
@@ -39,6 +40,8 @@ mutex ChatServer::socketsOnQueueMutex;
 
 unordered_map<string, ChatServer::MessageHandler> ChatServer::jsonHandlers;
 unordered_map<mju::Type::MessageType, ChatServer::MessageHandler> ChatServer::protobufHandlers;
+
+
 
 void ChatServer::SetIsJson(bool b) {
     isJson = b;
@@ -96,10 +99,10 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     struct sockaddr_in sin;
 
     for (int i = 0; i < numOfWorkerThreads; ++i)
-        workers.insert(make_unique<thread>(HandleSmallWork));
+        workers.push_back(thread(HandleSmallWork));
 
     //
-    while (true) {
+    while (terminateSignal.load() == false) {
         fd_set rset;
 
         FD_ZERO(&rset);
@@ -114,7 +117,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 maxFd = client;
         }
 
-        int numReady = select(maxFd + 1, &rset, NULL, NULL, NULL);
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000;  // 100 milliseconds
+
+        int numReady = select(maxFd + 1, &rset, NULL, NULL, &timeout);
         if (numReady < 0) {
             cerr << "select() failed: " << strerror(errno) << endl;
             continue;
@@ -205,8 +212,9 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         }
         _willClose.clear();
     }
-    cout << "나는 나갔다" << endl;
 
+    cout << "Main thread 종료 중" << endl;
+    TerminateServer();
     return true;
 }
 
@@ -257,34 +265,29 @@ void ChatServer::ConfigureMsgHandlers() {
     }
 }
 
-void ChatServer::TerminateServer() {
-    {
-        lock_guard<mutex> messagesQueueLock(messagesQueueMutex);
-        while (workers.size() != 0) {
-            messagesQueue.push({nullptr, -1}); // 종료 신호
-        }
-        messagesQueueEdited.notify_all();
-    }
+void ChatServer::Stop() {
+    terminateSignal.store(true);
+}
 
+void ChatServer::TerminateServer() {
+    terminateSignal.store(true);
     delete _instance;
 }
 
 void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
-    while (true) {
+    while (!terminateSignal.load()) {
         SmallWork work;
         {
             unique_lock<mutex> messagesQueueLock(messagesQueueMutex);
-            while (messagesQueue.empty())
-                messagesQueueEdited.wait(messagesQueueLock);
+            while (terminateSignal.load() == false && messagesQueue.empty())
+                messagesQueueEdited.wait_for(messagesQueueLock, chrono::milliseconds(100));
 
             work = messagesQueue.front();
             messagesQueue.pop();
         }
-
-        // socket번호가 -1인 경우 종료 신호
-        if (work.dataOwner == -1)
+        if (terminateSignal.load())
             break;
 
         if (isJson) {
@@ -431,12 +434,9 @@ ChatServer::~ChatServer() {
 
     // Worker threads 정리
     for (auto& worker : workers)
-        if (worker->joinable()) {
+        if (worker.joinable()) {
             cout << "작업 쓰레드 join() 시작" << endl;
-            worker->join();
+            worker.join();
             cout << "작업 쓰레드 join() 완료" << endl;
         }
-
-    if (_instance != nullptr)
-        _instance = nullptr;
 }

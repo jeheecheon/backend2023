@@ -3,8 +3,8 @@
 void HandleTermination(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
 
-    ChatServer& chatServer = ChatServer::CreateSingleton();
-    
+    ChatServer& server = ChatServer::CreateSingleton();
+    server.Stop();
 
     signal(signum, SIG_DFL);
 }

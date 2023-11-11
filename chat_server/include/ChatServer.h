@@ -30,7 +30,7 @@ private:
 
     set<int> _clients; // 연결된 클라이언트들
 
-    set<unique_ptr<thread>> workers; // Worker Threads
+    vector<thread> workers; // Worker Threads
     
     unordered_set<int> _willClose; // 종료할 클라이언트 소켓 set
 
@@ -38,7 +38,9 @@ private:
 
 public:
     static bool isJson; // JSON 포맷 = true, Protobuf 포맷 = false
-    
+
+    static volatile atomic<bool> terminateSignal;
+
     // ----------------------------------------------
     // 현재 존재하는 방들 
     static set<shared_ptr<Room>> rooms; // 방 목록
@@ -86,6 +88,9 @@ private:
     // 반환값은 성공 여부 true or false
     bool CustomReceive(int clientSock, void* buf, size_t size, int& numRecv);
 
+    // 채팅 서버 자원 정리.
+    void TerminateServer();
+
 public:
     ~ChatServer();
 
@@ -109,9 +114,11 @@ public:
     // ConfigureHandlers(false); // Protobuf 핸들러 설정
     void ConfigureMsgHandlers();
 
-    // 채팅 서버 종료.
-    void TerminateServer();
+    // 채팅 서버 종료
+    void Stop();
+
 public:
+
     //
     static void HandleSmallWork(); // Worker Thread의 Entry Point
 

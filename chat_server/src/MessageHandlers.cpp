@@ -569,5 +569,6 @@ void OnCsChat(int clientSock, const void* data) {
 }
 
 void OnCsShutDown(int clientSock, const void* data) {
-    cout << "OnCsShutDown" << endl;
+    ChatServer& server = ChatServer::CreateSingleton();
+    server.Stop();
 }
