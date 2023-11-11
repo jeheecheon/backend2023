@@ -29,7 +29,7 @@ private:
     static ChatServer* _instance;
 
 public:
-
+    static bool isJson; // JSON 포맷 = true, Protobuf 포맷 = false
     static set<Client> clients; // 연결된 클라이언트들 
     static vector<Client> rooms; // 방 목록
 
@@ -51,11 +51,10 @@ public:
 
     // ----------------------------------------------
     // Worker Thread의 MessageHandlers
-    typedef void (*MessageHandler)(const char* data);
-    static unordered_map<const char*, MessageHandler> jsonHandlers;
+    typedef void (*MessageHandler)(const void* data);
+    static unordered_map<string, MessageHandler> jsonHandlers;
     static unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
     // ----------------------------------------------
-
 
 private:
     ChatServer();
@@ -63,6 +62,8 @@ private:
 public:
     ~ChatServer();
 
+    // setter of IsJson
+    void SetIsJson(bool b); 
 
     // 서버 소캣 생성
     // 반환값은 성공 여부 true or false
@@ -87,7 +88,7 @@ public:
     // 핸들러들을 설정
     // ConfigureHandlers(true); // JSON 핸들러 설정
     // ConfigureHandlers(false); // Protobuf 핸들러 설정
-    void ConfigureMsgHandlers(bool IsJson);
+    void ConfigureMsgHandlers();
 
 public:
     //

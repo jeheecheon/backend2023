@@ -1,33 +1,42 @@
 #include "../include/MessageHandlers.h"
+#include "../include/ChatServer.h"
 
 #include <iostream>
 
 using namespace std;
 
-void OnCsName(const char* data) {
-    cout << "OnCsName" << endl;
+void OnCsName(const void* data) {
+
+    cout << "OnCsName " << (char*)data << endl;
+    
 }
 
-void OnCsRooms(const char* data) {
+void OnCsRooms(const void* data) {
     cout << "OnCsRooms" << endl;
 }
 
-void OnCsCreateRoom(const char* data) {
-    cout << "OnCsCreateRoom" << endl;
+void OnCsCreateRoom(const void* data) {
+
+
+    cout << "OnCsCreateRoom" << (char*)data << endl;
 }
 
-void OnCsJoinRoom(const char* data) {
-    cout << "OnCsJoinRoom" << endl;
+void OnCsJoinRoom(const void* data) {
+    // 방번호는 클라이언트에서 확인을 거침
+    // int
+    cout << "OnCsJoinRoom" << *((int*)data) << endl;
 }
 
-void OnCsLeaveRoom(const char* data) {
+void OnCsLeaveRoom(const void* data) {
     cout << "OnCsLeaveRoom" << endl;
 }
 
-void OnCsChat(const char* data) {
-    cout << "OnCsChat" << endl;
+void OnCsChat(const void* data) {
+
+
+    cout << "OnCsChat" << (char*)data << endl;
 }
 
-void OnCsShutDown(const char* data) {
+void OnCsShutDown(const void* data) {
     cout << "OnCsShutDown" << endl;
 }

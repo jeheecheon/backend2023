@@ -15,6 +15,10 @@ using namespace std;
 
 ChatServer* ChatServer::_instance = nullptr;
 
+bool ChatServer::isJson = true;
+set<Client> ChatServer::clients;
+vector<Client> ChatServer::rooms;
+
 queue<SmallWork> ChatServer::messagesQueue;
 mutex ChatServer::messagesQueueMutex;
 condition_variable ChatServer::messagesQueueEdited;
@@ -22,10 +26,12 @@ condition_variable ChatServer::messagesQueueEdited;
 unordered_set<int> ChatServer::socketsOnQueue;
 mutex ChatServer::socketsOnQueueMutex;
 
-set<Client> ChatServer::clients;
-unordered_map<const char*, ChatServer::MessageHandler> ChatServer::jsonHandlers;
+unordered_map<string, ChatServer::MessageHandler> ChatServer::jsonHandlers;
 unordered_map<mju::Type::MessageType, ChatServer::MessageHandler> ChatServer::protobufHandlers;
 
+void ChatServer::SetIsJson(bool b) {
+    isJson = b;
+}
 
 // Open 서버 소켓
 bool ChatServer::OpenServerSocket() {
@@ -73,6 +79,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     }
 
     cout << "Port 번호 " << _port << "에서 서버 동작 중" << endl;
+
+    ConfigureMsgHandlers();
 
     struct sockaddr_in sin;
 
@@ -190,8 +198,7 @@ bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numR
             return false;
         }
     }
-    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock
-         << endl;
+    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock << endl;
 
     return true;
 }
@@ -199,8 +206,8 @@ bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numR
 // 핸들러들을 설정
 // ConfigureHandlers(true); // JSON 핸들러 설정
 // ConfigureHandlers(false); // Protobuf 핸들러 설정
-void ChatServer::ConfigureMsgHandlers(bool IsJson) {
-    if (IsJson) {
+void ChatServer::ConfigureMsgHandlers() {
+    if (isJson) {
         // JSON handler 등록
         jsonHandlers["CSName"] = OnCsName;
         jsonHandlers["CSRooms"] = OnCsRooms;
@@ -211,20 +218,13 @@ void ChatServer::ConfigureMsgHandlers(bool IsJson) {
         jsonHandlers["CSShutdown"] = OnCsShutDown;
     } else {
         // Protobuf handler 등록
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] =
-            OnCsName;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] =
-            OnCsRooms;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM] =
-            OnCsCreateRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] =
-            OnCsJoinRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM] =
-            OnCsLeaveRoom;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] =
-            OnCsChat;
-        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] =
-            OnCsShutDown;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] = OnCsName;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] = OnCsRooms;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM] = OnCsCreateRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] = OnCsJoinRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM] = OnCsLeaveRoom;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] = OnCsChat;
+        protobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] = OnCsShutDown;
     }
 }
 
@@ -242,7 +242,7 @@ void ChatServer::HandleSmallWork() {
             messagesQueue.pop();
         }
 
-        if (IsJson) {
+        if (isJson) {
             Document jsonDoc;
             jsonDoc.Parse(work.dataToParse);
 
@@ -255,14 +255,53 @@ void ChatServer::HandleSmallWork() {
             jsonDoc.Accept(writer);
             cout << "JSON Data: " << buffer.GetString() << endl;
 
-            // // Json 데이터 Type 멤버의 값 접근
-            // if (jsonDoc.HasMember("type") && jsonDoc["type"].IsString()) {
-            //     const char* typeValue = jsonDoc["type"].GetString();
-            //     // jsonHandlers[typeValue]();
-            //     cout << typeValue << endl;
-            // } else
-            //     cerr << "Missing or invalid 'type' key in JSON data." <<
-            //     endl;
+            // Json 데이터 Type 멤버의 값 접근
+            if (jsonDoc.HasMember("type") && jsonDoc["type"].IsString()) {
+                const string typeValue = jsonDoc["type"].GetString();
+
+                try {
+                    if (typeValue == "CSName") {
+                        if (jsonDoc.HasMember("name") && jsonDoc["name"].IsString()) {
+                            string name = jsonDoc["name"].GetString();
+                            if (!name.empty())
+                                jsonHandlers[typeValue]((void*)name.c_str());
+                            else throw runtime_error("Empty name...");
+                        }
+                        else throw runtime_error("Empty name...");
+                    } else if (typeValue == "CSRooms") {
+                        jsonHandlers[typeValue](nullptr);
+                    } else if (typeValue == "CSCreateRoom") {
+                        if (jsonDoc.HasMember("title") && jsonDoc["title"].IsString()) {
+                            string title = jsonDoc["title"].GetString();
+                            if (!title.empty())
+                                jsonHandlers[typeValue]((void*)title.c_str());
+                            else throw runtime_error("Empty title...");
+                        }
+                        else throw runtime_error("Empty title...");
+                    } else if (typeValue == "CSJoinRoom") {
+                        if (jsonDoc.HasMember("roomId") && jsonDoc["roomId"].IsInt()) {
+                            int roomId = jsonDoc["roomId"].GetInt();
+                            jsonHandlers[typeValue]((void*)&roomId);
+                        }
+                        else throw runtime_error("No roomId provided or failed to parse JSON");
+                    } else if (typeValue == "CSLeaveRoom") {
+                        jsonHandlers[typeValue](nullptr);
+                    } else if (typeValue == "CSChat") {
+                        if (jsonDoc.HasMember("text") && jsonDoc["text"].IsString()) {
+                            string text = jsonDoc["text"].GetString();
+                            if (!text.empty())
+                                jsonHandlers[typeValue]((void*)text.c_str());
+                            else throw runtime_error("Empty text...");
+                        }
+                        else throw runtime_error("Empty text...");
+                    } else if (typeValue == "CSShutdown") {
+                        jsonHandlers[typeValue](nullptr);
+                    }
+                } catch (runtime_error & ex) {
+                    cerr << "Exception caught while parsing JSON.." << ex.what() <<  endl;
+                }
+            } else
+                cerr << "Missing or invalid 'type' key in JSON data." << endl;
 
         } else {  // protobuf로 처리중인 경우
             // protobuf 는 두 개의 메시지로 분리하여 전송 받음

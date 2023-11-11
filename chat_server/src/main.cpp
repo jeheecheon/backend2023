@@ -1,8 +1,6 @@
 #include "../include/ChatServer.h"
 
 
-bool IsJson = true;  // Json 또는 Protobuf
-
 // 전역 변수로서 시그널이 수신되었는지를 나타내는 플래그
 volatile atomic<bool> signalReceived(false);
 
@@ -20,6 +18,7 @@ int main(int argc, char* argv[]) {
 
     int numOfWorkerThreads = 2;
     int port = -1;
+    bool isJson = true;
 
     // main 으로 전달된 arguments handling
     bool isInputError = false;
@@ -49,9 +48,9 @@ int main(int argc, char* argv[]) {
                     ++i;
                 } else if (strcmp(argv[i], "--format") == 0) {
                     if (strcmp(argv[i + 1], "json") == 0)
-                        IsJson = true;
+                        isJson = true;
                     else if (strcmp(argv[i + 1], "protobuf") == 0) {
-                        IsJson = false;
+                        isJson = false;
                     } else {
                         isInputError = true;
                         break;
@@ -83,14 +82,17 @@ int main(int argc, char* argv[]) {
     }
 
     // 서버 세팅
+    //
     ChatServer& chatServer = ChatServer::CreateSingleton();
 
-    chatServer.ConfigureMsgHandlers(IsJson);
+    chatServer.SetIsJson(isJson);
 
     if (!chatServer.OpenServerSocket()) 
         return -1;
+
     if (!chatServer.BindServerSocket(port, INADDR_ANY)) 
         return -1;
+
     //서버 시작
     if (!chatServer.Start(numOfWorkerThreads)) 
         return -1;

@@ -15,9 +15,6 @@
 
 using namespace std;
 
-// 서버 옵션 설정.
-extern bool IsJson;  // Json 또는 Protobuf
-
 // 시그널이 수신되었는지를 나타내는 플래그
 extern volatile atomic<bool> signalReceived;
 
