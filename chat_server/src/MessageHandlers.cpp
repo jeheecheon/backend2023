@@ -90,51 +90,76 @@ void OnCsName(int clientSock, const void* data) {
 }
 
 void OnCsRooms(int clientSock, const void* data) {
+
+    char* msgToSend = nullptr; // 보낼 메시지
+    short bytesToSend; // 보낼 데이터의 바이트 수
+
     // json 포맷
     if (ChatServer::isJson) { // SCRoomsResult
-        // // RapidJSON document 생성
-        // rapidjson::Document jsonDoc;
-        // jsonDoc.SetObject();
+        // RapidJSON document 생성
+        rapidjson::Document jsonDoc;
+        jsonDoc.SetObject();
 
-        // // "type" : "SCRoomsResult" 추가
-        // rapidjson::Value typeValue;
-        // typeValue.SetString("SCRoomsResult", jsonDoc.GetAllocator());
-        // jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
+        // "type" : "SCRoomsResult" 추가
+        rapidjson::Value typeValue;
+        typeValue.SetString("SCRoomsResult", jsonDoc.GetAllocator());
+        jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
 
-        // rapidjson::Value roomsArray(rapidjson::kArrayType);
-        // {
-        //     lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+        rapidjson::Value roomsArray(kArrayType);
+        {
+            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            {
+                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
 
-        //     for (auto& room : ChatServer::rooms) {
-        //         rapidjson::Value roomObject(rapidjson::kObjectType);
-        //         roomObject.AddMember("roomId", room->roomId, jsonDoc.GetAllocator());
-        //         roomObject.AddMember("title", room->title, jsonDoc.GetAllocator());
+                for (auto& r : ChatServer::rooms) {
+                    // Room 1
+                    rapidjson::Value roomObject(kObjectType);
+                    
+                    rapidjson::Value roomIdValue;
+                    roomIdValue.SetInt(r->roomId);
+                    roomObject.AddMember("roomId", roomIdValue, jsonDoc.GetAllocator());
 
+                    rapidjson::Value titleString;
+                    titleString.SetString(r->title.c_str(), jsonDoc.GetAllocator());
+                    roomObject.AddMember("title", titleString, jsonDoc.GetAllocator());
 
-        //         rapidjson::Value membersArray(rapidjson::kArrayType);
-        //         {
-        //             lock_guard<mutex> usersLock(ChatServer::usersMutex);
-        //             for (auto& user : ChatServer::users)
-        //                 membersArray.PushBack(user->GetUserName(), jsonDoc.GetAllocator());
-        //         }
+                    rapidjson::Value membersArray(kArrayType);
+                    for (auto& u : ChatServer::users) {
+                        rapidjson::Value memberName;
+                        memberName.SetString(u->GetUserName().c_str(), jsonDoc.GetAllocator());
 
-        //         roomObject.AddMember("members", membersArray, jsonDoc.GetAllocator());
-        //         roomsArray.PushBack(roomObject, jsonDoc.GetAllocator());
-        //     }
-        // }
-        // jsonDoc.AddMember("rooms", roomsArray, jsonDoc.GetAllocator());
+                        membersArray.PushBack(memberName, jsonDoc.GetAllocator());
+                    }
+                    roomObject.AddMember("members", membersArray, jsonDoc.GetAllocator());
 
-        // // Convert the document to a JSON string
-        // rapidjson::StringBuffer buffer;
-        // rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        // jsonDoc.Accept(writer);
+                    roomsArray.PushBack(roomObject, jsonDoc.GetAllocator());
+                }
+            }
+        }
+        jsonDoc.AddMember("rooms", roomsArray, jsonDoc.GetAllocator());
 
-        // std::string jsonString = buffer.GetString();
-        // std::cout << jsonString << std::endl;
+        // Convert the document to a JSON string
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        jsonDoc.Accept(writer);
+        string jsonString = buffer.GetString();
+        cout << jsonString << endl;
+
+        // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
+        short msgBytesInBigEnndian = htons(jsonString.length());
+        bytesToSend = jsonString.length() + 2;
+        msgToSend = new char[bytesToSend];
+        memcpy(msgToSend, &msgBytesInBigEnndian, 2);
+        memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
     }
     // protobuf 포맷
     else {
 
+    }
+    // 메시지 전송
+    if (msgToSend != nullptr) {
+        ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
+        delete[] msgToSend;
     }
 }
 
