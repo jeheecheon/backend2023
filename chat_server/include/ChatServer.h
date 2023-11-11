@@ -22,14 +22,40 @@ private:
     int _port; // 서버 소켓 port 번호
     bool _isBinded; // BindServerSocket 가 호출되어 성공되었는지
 
-    std::set<std::unique_ptr<std::thread>> workers; // Worker Threads
+    set<shared_ptr<thread>> workers;
+    // set<unique_ptr<thread>> workers; // Worker Threads
     unordered_set<int> _willClose; // 종료할 클라이언트 소켓 set
 
+    static ChatServer* _instance;
+
 public:
-    static unique_ptr<ChatServer> instance;
 
     static set<Client> clients; // 연결된 클라이언트들 
     static vector<Client> rooms; // 방 목록
+
+
+    // ----------------------------------------------
+    // 읽기 이벤트가 발생한 클라이언트 queue
+    static queue<SmallWork> messagesQueue;
+    static mutex messagesQueueMutex;
+    static condition_variable messagesQueueEdited;
+    // ----------------------------------------------
+
+
+    // ----------------------------------------------
+    // messagesQueue에서 아직 연산을 기다리는 Sockets들을 담는 set
+    static unordered_set<int> socketsOnQueue;
+    static mutex socketsOnQueueMutex;
+    // ----------------------------------------------
+
+
+    // ----------------------------------------------
+    // Worker Thread의 MessageHandlers
+    typedef void (*MessageHandler)(const char* data);
+    static unordered_map<const char*, MessageHandler> jsonHandlers;
+    static unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
+    // ----------------------------------------------
+
 
 private:
     ChatServer();
@@ -67,7 +93,7 @@ public:
     //
     static void HandleSmallWork(); // Worker Thread의 Entry Point
 
-    static ChatServer& CreateInstance();
+    static ChatServer& CreateSingleton();
 
 private:
     void Cleanup();

@@ -1,22 +1,11 @@
 #include "../include/ChatServer.h"
 
+
 bool IsJson = true;  // Json 또는 Protobuf
-
-// 읽기 이벤트가 발생한 클라이언트 queue
-queue<SmallWork> messagesQueue;
-mutex messagesQueueMutex;
-condition_variable messagesQueueEdited;
-
-// messagesQueue에서 아직 연산을 기다리는 Sockets들을 담는 set
-unordered_set<int> socketsOnQueue;
-mutex socketsOnQueueMutex;
 
 // 전역 변수로서 시그널이 수신되었는지를 나타내는 플래그
 volatile atomic<bool> signalReceived(false);
 
-// Worker Thread의 MessageHandlers
-unordered_map<const char*, MessageHandler> jsonHandlers;
-unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
 
 int main(int argc, char* argv[]) {
     // option 입력 방법 출력
@@ -94,8 +83,8 @@ int main(int argc, char* argv[]) {
     }
 
     // 서버 세팅
-    ChatServer chatServer = ChatServer::CreateInstance();
-    
+    ChatServer& chatServer = ChatServer::CreateSingleton();
+
     chatServer.ConfigureMsgHandlers(IsJson);
 
     if (!chatServer.OpenServerSocket()) 

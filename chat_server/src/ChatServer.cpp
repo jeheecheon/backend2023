@@ -13,6 +13,20 @@
 using namespace rapidjson;
 using namespace std;
 
+ChatServer* ChatServer::_instance = nullptr;
+
+queue<SmallWork> ChatServer::messagesQueue;
+mutex ChatServer::messagesQueueMutex;
+condition_variable ChatServer::messagesQueueEdited;
+
+unordered_set<int> ChatServer::socketsOnQueue;
+mutex ChatServer::socketsOnQueueMutex;
+
+set<Client> ChatServer::clients;
+unordered_map<const char*, ChatServer::MessageHandler> ChatServer::jsonHandlers;
+unordered_map<mju::Type::MessageType, ChatServer::MessageHandler> ChatServer::protobufHandlers;
+
+
 // Open 서버 소켓
 bool ChatServer::OpenServerSocket() {
     _serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -63,7 +77,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     struct sockaddr_in sin;
 
     for (int i = 0; i < numOfWorkerThreads; ++i)
-        workers.insert(make_unique<thread>(HandleSmallWork));
+        workers.insert(make_shared<thread>(HandleSmallWork));
+        // workers.insert(make_unique<thread>(HandleSmallWork));
 
     //
     while (true) {
@@ -279,10 +294,10 @@ void ChatServer::HandleSmallWork() {
     return;
 }
 
-ChatServer& ChatServer::CreateInstance() {
-    if (instance == NULL)
-        instance = make_unique<ChatServer>();
-    return *instance;
+ChatServer& ChatServer::CreateSingleton() {
+    if (_instance == NULL)
+        _instance = new ChatServer();
+    return *_instance;
 }
 
 ChatServer::ChatServer() {
@@ -306,4 +321,9 @@ ChatServer::~ChatServer() {
             worker->join();
             cout << "작업 쓰레드 join() 완료" << endl;
         }
+
+    if (_instance != nullptr) {
+        delete _instance;
+        _instance = nullptr;
+    }
 }
