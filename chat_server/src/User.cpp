@@ -4,6 +4,7 @@ using namespace std;
 
 User::User() {
     userName = "None";
+    roomThisUserIn = nullptr;
 }
 
 User::~User() {}

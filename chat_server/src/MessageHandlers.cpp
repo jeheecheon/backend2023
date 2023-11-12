@@ -172,7 +172,7 @@ void OnCsCreateRoom(int clientSock, const void* data) {
         cerr << "Failed to find the matching user with sock num....!!!!!";
         return;
     }
-
+// 대화 방에 있을 때는 방을 개설 할 수 없습니다.
     shared_ptr<Room> newRoom;
     int roomId;
     {
@@ -197,112 +197,125 @@ void OnCsJoinRoom(int clientSock, const void* data) {
         cerr << "Failed to find the matching user with sock num....!!!!!";
         return;
     }
+
+    bool isUserInRoom; // 유저가 채팅방에 들어가 있는지
     string textForOtherUsers;
     {
         lock_guard<mutex> usersLock(ChatServer::UsersMutex);
-        {
+
+        //유저가 채팅방에 접속해 있지 않은 경우
+        isUserInRoom = user->roomThisUserIn != nullptr;
+        if (!isUserInRoom) {
             lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
+            // 입력된 채팅방 번호와 일치하는 방을 찾아 접속 시킨다
             for (auto r : ChatServer::Rooms)
                 if (r->roomId == roomId) {
                     r->usersInThisRoom.insert(user);
                     user->roomThisUserIn = r;
                     break;
                 }
+            
+            // 보낼 메시지 내용을 미리 만든다
+            textForOtherUsers = user->GetUserName() + " 님이 입장했습니다.";
         }
-        // 보낼 메시지 내용을 미리 만든다
-        textForOtherUsers = user->GetUserName() + " 님이 입장했습니다.";
     }
-
 
     // 보낼 메시지 내용을 미리 만든다
-    string textForUserJustEntered;
+    string textForUserGettingIn;
     {
         lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
-        for (auto r : ChatServer::Rooms) 
-            if (r->roomId == roomId) {
-                textForUserJustEntered = "방제[" + r->title + "] 방에 입장했습니다.";
-                break;
-            }
+
+        // 접속한 채팅방이 있으면
+        if (isUserInRoom) 
+            textForUserGettingIn = "대화 방에 있을 때는 다른 방에 들어갈 수 없습니다.";
+        
+        // 접속한 채팅방이 없으면
+        else {
+            for (auto r : ChatServer::Rooms) 
+                if (r->roomId == roomId) {
+                    textForUserGettingIn = "방제[" + r->title + "] 방에 입장했습니다.";
+                    break;
+                }
+        }
     }
 
-    char* msgToSendForUserJustEntered = nullptr; // 보낼 메시지
-    short bytesToSendForUserJustEntered; // 보낼 데이터의 바이트 수
+    char* msgToSendForUserGettingIn = nullptr; // 보낼 메시지
+    short bytesToSendForUserGettingIn; // 보낼 데이터의 바이트 수
     char* msgToSendForOtherUsers = nullptr; // 보낼 메시지
     short bytesToSendForOtherUsers; // 보낼 데이터의 바이트 수
 
     // json 포맷
     if (ChatServer::IsJson) {
         // RapidJSON document 생성
-        rapidjson::Document jsonDocForUserJustEntered;
-        jsonDocForUserJustEntered.SetObject();
+        rapidjson::Document jsonDocForUserGettingIn;
+        jsonDocForUserGettingIn.SetObject();
 
         // "type" : "SCSystemMessage" 추가
-        rapidjson::Value typeValueForUserJustEntered;
-        typeValueForUserJustEntered.SetString("SCSystemMessage", jsonDocForUserJustEntered.GetAllocator());
-        jsonDocForUserJustEntered.AddMember("type", typeValueForUserJustEntered, jsonDocForUserJustEntered.GetAllocator());
+        rapidjson::Value typeValueForUserGettingIn;
+        typeValueForUserGettingIn.SetString("SCSystemMessage", jsonDocForUserGettingIn.GetAllocator());
+        jsonDocForUserGettingIn.AddMember("type", typeValueForUserGettingIn, jsonDocForUserGettingIn.GetAllocator());
 
         // "text" : + 시스템 메시지 추가
-        rapidjson::Value textValueForUserJustEntered;
-        textValueForUserJustEntered.SetString(textForUserJustEntered.c_str(), jsonDocForUserJustEntered.GetAllocator());
-        jsonDocForUserJustEntered.AddMember("text", textValueForUserJustEntered, jsonDocForUserJustEntered.GetAllocator());
+        rapidjson::Value textValueForUserGettingIn;
+        textValueForUserGettingIn.SetString(textForUserGettingIn.c_str(), jsonDocForUserGettingIn.GetAllocator());
+        jsonDocForUserGettingIn.AddMember("text", textValueForUserGettingIn, jsonDocForUserGettingIn.GetAllocator());
 
         // document 를 json string으로 변환
-        rapidjson::StringBuffer bufferForUserJustEntered;
-        rapidjson::Writer<rapidjson::StringBuffer> writerForUserJustEntered(bufferForUserJustEntered);
-        jsonDocForUserJustEntered.Accept(writerForUserJustEntered);
-        string jsonStringForUserJustEntered = bufferForUserJustEntered.GetString();
-
-        // 새로운 JSON 문자열을 만들기 위해 jsonDoc 초기화
-        jsonDocForUserJustEntered.SetObject();
-
-        // "type" : "SCSystemMessage" 추가
-        rapidjson::Value typeValueForOtherUsers;
-        typeValueForOtherUsers.SetString("SCSystemMessage", jsonDocForUserJustEntered.GetAllocator());
-        jsonDocForUserJustEntered.AddMember("type", typeValueForOtherUsers, jsonDocForUserJustEntered.GetAllocator());
-
-        // "text" : + 시스템 메시지 추가
-        rapidjson::Value textValueForOtherUsers;
-        textValueForOtherUsers.SetString(textForOtherUsers.c_str(), jsonDocForUserJustEntered.GetAllocator());
-        jsonDocForUserJustEntered.AddMember("text", textValueForOtherUsers, jsonDocForUserJustEntered.GetAllocator());
-
-        // document 를 json string으로 변환
-        rapidjson::StringBuffer bufferForOtherUsers;
-        rapidjson::Writer<rapidjson::StringBuffer> writerForOtherUsers(bufferForOtherUsers);
-        jsonDocForUserJustEntered.Accept(writerForOtherUsers);
-        string jsonStringForOtherUsers = bufferForOtherUsers.GetString();
-
-
-        cout << jsonStringForOtherUsers << endl << jsonStringForUserJustEntered << endl;
+        rapidjson::StringBuffer bufferForUserGettingIn;
+        rapidjson::Writer<rapidjson::StringBuffer> writerForUserGettingIn(bufferForUserGettingIn);
+        jsonDocForUserGettingIn.Accept(writerForUserGettingIn);
+        string jsonStringForUserGettingIn = bufferForUserGettingIn.GetString();
 
         // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
-        short msgBytesInBigEnndian = htons(jsonStringForUserJustEntered.length());
-        bytesToSendForUserJustEntered = jsonStringForUserJustEntered.length() + 2;
-        msgToSendForUserJustEntered = new char[bytesToSendForUserJustEntered];
-        memcpy(msgToSendForUserJustEntered, &msgBytesInBigEnndian, 2);
-        memcpy(msgToSendForUserJustEntered + 2, jsonStringForUserJustEntered.c_str(), jsonStringForUserJustEntered.length());
+        short msgBytesInBigEnndian = htons(jsonStringForUserGettingIn.length());
+        bytesToSendForUserGettingIn = jsonStringForUserGettingIn.length() + 2;
+        msgToSendForUserGettingIn = new char[bytesToSendForUserGettingIn];
+        memcpy(msgToSendForUserGettingIn, &msgBytesInBigEnndian, 2);
+        memcpy(msgToSendForUserGettingIn + 2, jsonStringForUserGettingIn.c_str(), jsonStringForUserGettingIn.length());
 
-        // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
-        msgBytesInBigEnndian = htons(jsonStringForOtherUsers.length());
-        bytesToSendForOtherUsers = jsonStringForOtherUsers.length() + 2;
-        msgToSendForOtherUsers = new char[bytesToSendForOtherUsers];
-        memcpy(msgToSendForOtherUsers, &msgBytesInBigEnndian, 2);
-        memcpy(msgToSendForOtherUsers + 2, jsonStringForOtherUsers.c_str(), jsonStringForOtherUsers.length());
+        if (!isUserInRoom) {
+            // 새로운 JSON 문자열을 만들기 위해 jsonDoc 초기화
+            jsonDocForUserGettingIn.SetObject();
+
+            // "type" : "SCSystemMessage" 추가
+            rapidjson::Value typeValueForOtherUsers;
+            typeValueForOtherUsers.SetString("SCSystemMessage", jsonDocForUserGettingIn.GetAllocator());
+            jsonDocForUserGettingIn.AddMember("type", typeValueForOtherUsers, jsonDocForUserGettingIn.GetAllocator());
+
+            // "text" : + 시스템 메시지 추가
+            rapidjson::Value textValueForOtherUsers;
+            textValueForOtherUsers.SetString(textForOtherUsers.c_str(), jsonDocForUserGettingIn.GetAllocator());
+            jsonDocForUserGettingIn.AddMember("text", textValueForOtherUsers, jsonDocForUserGettingIn.GetAllocator());
+
+            // document 를 json string으로 변환
+            rapidjson::StringBuffer bufferForOtherUsers;
+            rapidjson::Writer<rapidjson::StringBuffer> writerForOtherUsers(bufferForOtherUsers);
+            jsonDocForUserGettingIn.Accept(writerForOtherUsers);
+            string jsonStringForOtherUsers = bufferForOtherUsers.GetString();
+
+            // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
+            msgBytesInBigEnndian = htons(jsonStringForOtherUsers.length());
+            bytesToSendForOtherUsers = jsonStringForOtherUsers.length() + 2;
+            msgToSendForOtherUsers = new char[bytesToSendForOtherUsers];
+            memcpy(msgToSendForOtherUsers, &msgBytesInBigEnndian, 2);
+            memcpy(msgToSendForOtherUsers + 2, jsonStringForOtherUsers.c_str(), jsonStringForOtherUsers.length());
+        }
     } 
     // protobuf 포맷
     else {
 
     }
 
-    if (msgToSendForUserJustEntered != nullptr) {
+    if (msgToSendForUserGettingIn != nullptr) {
         {
             lock_guard<mutex> usersLock(ChatServer::UsersMutex);
-            ChatServer::CustomSend(user->socketNumber, msgToSendForUserJustEntered, bytesToSendForUserJustEntered);
+            ChatServer::CustomSend(user->socketNumber, msgToSendForUserGettingIn, bytesToSendForUserGettingIn);
         }
-        delete[] msgToSendForUserJustEntered;
+        delete[] msgToSendForUserGettingIn;
     }
     if (msgToSendForOtherUsers != nullptr) {
-        {
+        if (!isUserInRoom) {
             lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             
             if (user->roomThisUserIn != nullptr) {
@@ -313,10 +326,11 @@ void OnCsJoinRoom(int clientSock, const void* data) {
                         cout << u->socketNumber << endl;
                         ChatServer::CustomSend(u->socketNumber, msgToSendForOtherUsers, bytesToSendForOtherUsers);
                     }
-
                 }
             }
+
         }
+
         delete[] msgToSendForOtherUsers;
     }
 }
