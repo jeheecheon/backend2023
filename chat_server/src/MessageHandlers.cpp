@@ -2,9 +2,9 @@
 #include "../include/ChatServer.h"
 
 #include "../include/SmallWork.h"
-#include "../rapidjson/document.h"
-#include "../rapidjson/stringbuffer.h"
-#include "../rapidjson/writer.h"
+#include "../include/rapidjson/document.h"
+#include "../include/rapidjson/stringbuffer.h"
+#include "../include/rapidjson/writer.h"
 
 #include <iostream>
 
@@ -24,7 +24,7 @@ void OnCsName(int clientSock, const void* data) {
     // 찾은 유저의 이름을 가져온다
     string prevName;
     {
-        lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         prevName = user->GetUserName();
         user->userName = name;
     }
@@ -36,7 +36,7 @@ void OnCsName(int clientSock, const void* data) {
     short bytesToSend; // 보낼 데이터의 바이트 수
 
     // json 포맷
-    if (ChatServer::isJson) {
+    if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
         jsonDoc.SetObject();
@@ -72,9 +72,9 @@ void OnCsName(int clientSock, const void* data) {
     // 메시지 전송
     if (msgToSend != nullptr) {
         {
-            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             {
-                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
                 if (user->roomThisUserIn == nullptr)
                     ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
@@ -95,7 +95,7 @@ void OnCsRooms(int clientSock, const void* data) {
     short bytesToSend; // 보낼 데이터의 바이트 수
 
     // json 포맷
-    if (ChatServer::isJson) { // SCRoomsResult
+    if (ChatServer::IsJson) { // SCRoomsResult
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
         jsonDoc.SetObject();
@@ -107,11 +107,11 @@ void OnCsRooms(int clientSock, const void* data) {
 
         rapidjson::Value roomsArray(kArrayType);
         {
-            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             {
-                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
-                for (auto& r : ChatServer::rooms) {
+                for (auto& r : ChatServer::Rooms) {
                     // Room 1
                     rapidjson::Value roomObject(kObjectType);
                     
@@ -124,7 +124,7 @@ void OnCsRooms(int clientSock, const void* data) {
                     roomObject.AddMember("title", titleString, jsonDoc.GetAllocator());
 
                     rapidjson::Value membersArray(kArrayType);
-                    for (auto& u : ChatServer::users) {
+                    for (auto& u : ChatServer::Users) {
                         rapidjson::Value memberName;
                         memberName.SetString(u->GetUserName().c_str(), jsonDoc.GetAllocator());
 
@@ -176,9 +176,9 @@ void OnCsCreateRoom(int clientSock, const void* data) {
     shared_ptr<Room> newRoom;
     int roomId;
     {
-        lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+        lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
         newRoom = make_shared<Room>(title);
-        ChatServer::rooms.insert(newRoom);
+        ChatServer::Rooms.insert(newRoom);
         roomId = newRoom->roomId;
     }
 
@@ -199,13 +199,13 @@ void OnCsJoinRoom(int clientSock, const void* data) {
     }
     string textForOtherUsers;
     {
-        lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         {
-            lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+            lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
-            for (auto r : ChatServer::rooms)
+            for (auto r : ChatServer::Rooms)
                 if (r->roomId == roomId) {
-                    r->usersInThisRoom.push_back(user);
+                    r->usersInThisRoom.insert(user);
                     user->roomThisUserIn = r;
                     break;
                 }
@@ -218,8 +218,8 @@ void OnCsJoinRoom(int clientSock, const void* data) {
     // 보낼 메시지 내용을 미리 만든다
     string textForUserJustEntered;
     {
-        lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
-        for (auto r : ChatServer::rooms) 
+        lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
+        for (auto r : ChatServer::Rooms) 
             if (r->roomId == roomId) {
                 textForUserJustEntered = "방제[" + r->title + "] 방에 입장했습니다.";
                 break;
@@ -232,7 +232,7 @@ void OnCsJoinRoom(int clientSock, const void* data) {
     short bytesToSendForOtherUsers; // 보낼 데이터의 바이트 수
 
     // json 포맷
-    if (ChatServer::isJson) {
+    if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDocForUserJustEntered;
         jsonDocForUserJustEntered.SetObject();
@@ -296,17 +296,17 @@ void OnCsJoinRoom(int clientSock, const void* data) {
 
     if (msgToSendForUserJustEntered != nullptr) {
         {
-            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             ChatServer::CustomSend(user->socketNumber, msgToSendForUserJustEntered, bytesToSendForUserJustEntered);
         }
         delete[] msgToSendForUserJustEntered;
     }
     if (msgToSendForOtherUsers != nullptr) {
         {
-            lock_guard<mutex> usersLock(ChatServer::usersMutex);
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             
             if (user->roomThisUserIn != nullptr) {
-                lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
                 for (auto u : user->roomThisUserIn->usersInThisRoom) {
                     if (u->socketNumber != user->socketNumber) {
@@ -337,12 +337,12 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
     shared_ptr<Room> room = nullptr;
 
     {
-        lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         textForOtherUsers = user->GetUserName() + " 님이 퇴장했습니다.";
 
         isUserInRoom = user->roomThisUserIn != nullptr;
         if (isUserInRoom) {
-            lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+            lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
             room = user->roomThisUserIn; // 유저가 현재 속한 방 저장
             textForUserExiting = "방제[" + room->title + "] 대화 방에서 퇴장했습니다.";
@@ -355,7 +355,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 
             // 채팅방에 아무도 없다면 채팅방을 삭제
             if (room->usersInThisRoom.size() == 0)
-                ChatServer::rooms.erase(room);
+                ChatServer::Rooms.erase(room);
         }
     }
 
@@ -365,7 +365,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
     short bytesToSendForOtherUsers; // 보낼 데이터의 바이트 수
 
     // json 포맷
-    if (ChatServer::isJson) {
+    if (ChatServer::IsJson) {
         string jsonStringForUserExiting;
         string jsonStringForOtherUsers;
 
@@ -456,9 +456,9 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 
         if (isUserInRoom) {
             {
-                lock_guard<mutex> usersLock(ChatServer::usersMutex);
+                lock_guard<mutex> usersLock(ChatServer::UsersMutex);
                 {
-                    lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                    lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
                     if (room != nullptr) 
                         for (auto u : room->usersInThisRoom) 
                             ChatServer::CustomSend(u->socketNumber, msgToSendForOtherUsers, bytesToSendForOtherUsers);
@@ -485,7 +485,7 @@ void OnCsChat(int clientSock, const void* data) {
     const char* userName;
     bool isUserInRoom = false;
     {
-        lock_guard<mutex> usersLock(ChatServer::usersMutex);
+        lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         isUserInRoom = user->roomThisUserIn != nullptr;
         userName = user->GetUserName().c_str();
     }
@@ -494,7 +494,7 @@ void OnCsChat(int clientSock, const void* data) {
     short bytesToSend; // 보낼 데이터의 바이트 수
 
     // json 포맷
-    if (ChatServer::isJson) {
+    if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
         jsonDoc.SetObject();
@@ -548,9 +548,9 @@ void OnCsChat(int clientSock, const void* data) {
     if (msgToSend != nullptr) {
         {   
             {
-                lock_guard<mutex> usersLock(ChatServer::usersMutex);
+                lock_guard<mutex> usersLock(ChatServer::UsersMutex);
                 {
-                    lock_guard<mutex> roomsLock(ChatServer::roomsMutex);
+                    lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
                     if (isUserInRoom) {
                         for (auto& u : user->roomThisUserIn->usersInThisRoom)

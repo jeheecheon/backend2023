@@ -1,4 +1,8 @@
-// ChatServer.h
+/**
+ * @file ChatServer.h
+ * @brief 채팅 서버 클래스 헤더 파일
+ */
+
 #pragma once
 
 #ifndef CHAT_SERVER_H
@@ -22,118 +26,162 @@
 
 using namespace std;
 
+/**
+ * @class ChatServer
+ * @brief 채팅 서버 클래스
+ *
+ * 채팅 서버의 주요 기능과 멤버 변수를 정의한 클래스입니다.
+*/
 class ChatServer {
 private:
     int _serverSocket; // 서버 소켓 번호
-    int _port; // 서버 소켓 port 번호
-    bool _isBinded; // BindServerSocket 가 호출되어 성공되었는지
+    int _port; // 서버 port 번호
+    bool _isOpened; // 서버소켓 오픈 여부
+    bool _isBinded; // 소켓 바인드 여부
+    unordered_set<int> _clients; // 서버와 연결된 클라이언트
+    vector<thread> _workers; ///< Worker Threads
+    unordered_set<int> _willClose; // 종료 예정인 클라이언트 소켓 set
 
-    set<int> _clients; // 연결된 클라이언트들
-
-    vector<thread> workers; // Worker Threads
-    
-    unordered_set<int> _willClose; // 종료할 클라이언트 소켓 set
-
-    static ChatServer* _instance; // Singleton 인스턴
-
+    static ChatServer* _Instance; // Singleton 인스턴스
 public:
-    static bool isJson; // JSON 포맷 = true, Protobuf 포맷 = false
+    static bool IsJson; // 서버 입출력 JSON 포맷 = true, Protobuf 포맷 = false
 
-    static volatile atomic<bool> terminateSignal;
+    static volatile atomic<bool> TerminateSignal; // 서버 종료 시그널
 
-    // ----------------------------------------------
-    // 현재 존재하는 방들 
-    static set<shared_ptr<Room>> rooms; // 방 목록
-    static mutex roomsMutex;
-    // ----------------------------------------------
-
+    static volatile atomic<bool> IsRunning; // 서버가 실행중인지
 
     // ----------------------------------------------
-    // 연결된 유저들  
-    static set<shared_ptr<User>> users; 
-    static mutex usersMutex;
+    // 채팅방 
+    static set<shared_ptr<Room>> Rooms;
+    static mutex RoomsMutex;
     // ----------------------------------------------
 
-
     // ----------------------------------------------
-    // 읽기 이벤트가 발생한 클라이언트 queue
-    static queue<SmallWork> messagesQueue;
-    static mutex messagesQueueMutex;
-    static condition_variable messagesQueueEdited;
+    // 유저
+    static set<shared_ptr<User>> Users; 
+    static mutex UsersMutex;
     // ----------------------------------------------
 
+    // ----------------------------------------------
+    // Worker Threads 의 작업 Queue
+    static queue<SmallWork> SmallWorkQueue;
+    static mutex SmallWorkQueueMutex;
+    static condition_variable SmallWorkQueueAdded;
+    // ----------------------------------------------
 
     // ----------------------------------------------
-    // messagesQueue에서 아직 연산을 기다리는 Sockets들을 담는 set
-    static unordered_set<int> socketsOnQueue;
-    static mutex socketsOnQueueMutex;
+    // 처리 되지 않은 메시지가 남아있는 클아이언트 Queue
+    static unordered_set<int> SocketsOnQueue;
+    static mutex SocketsOnQueueMutex;
     // ----------------------------------------------
 
-
     // ----------------------------------------------
-    // Worker Thread의 MessageHandlers
+    // MessageHandlers
     typedef void (*MessageHandler)(int clientSock, const void* data);
-    static unordered_map<string, MessageHandler> jsonHandlers;
-    static unordered_map<mju::Type::MessageType, MessageHandler> protobufHandlers;
+    static unordered_map<string, MessageHandler> JsonHandlers;
+    static unordered_map<mju::Type::MessageType, MessageHandler> ProtobufHandlers;
     // ----------------------------------------------
 
 private:
+    /**
+     * @brief ChatServer 생성자 (private로 선언하여 Singleton 패턴 구현)
+    */
     ChatServer();
 
-    // recv 함수를 대신 호출한다. 예외처리를 대신 처리함
-    // clientSock - 값을 확인할 클라이언트 소켓 번호
-    // buf - 값을 담을 메모리 영역
-    // size - buf의 크기
-    // numRecv - 전달받은 값을 저장할 변수
-    // 반환값은 성공 여부 true or false
+    /**
+     * @brief recv 함수를 대신 호출하고 예외를 처리하는 함수
+     *
+     * @param clientSock 확인할 클라이언트 소켓 번호
+     * @param buf 값을 담을 메모리 영역
+     * @param size buf의 크기
+     * @param numRecv 전달받은 값을 저장할 변수
+     * @return 성공 여부 true or false
+    */
     bool CustomReceive(int clientSock, void* buf, size_t size, int& numRecv);
 
-    // 채팅 서버 자원 정리.
+    /**
+     * @brief 채팅 서버 자원 정리하는 함수
+    */
+public:
+    
     void TerminateServer();
 
-public:
+    /**
+     * @brief ChatServer 소멸자
+    */
     ~ChatServer();
 
-    // setter of IsJson
-    void SetIsJson(bool b); 
+    /**
+     * @brief IsJson Setter
+     *
+     * @param b JSON 포맷 여부
+    */
+    void SetIsJson(bool isJson); 
 
-    // 서버 소캣 생성
-    // 반환값은 성공 여부 true or false
+    /**
+     * @brief 서버 소켓 생성
+     *
+     * @return 성공 여부
+    */
     bool OpenServerSocket();
 
-    // 전달된 포트번호와 아이피로 서버소켓을 바인드
-    // 반환값은 성공 여부 true or false
+    /**
+     * @brief 전달된 포트번호와 아이피로 서버소켓을 바인드
+     *
+     * @param port 포트 번호
+     * @param addr IP 주소
+     * @return 성공 여부
+    */
     bool BindServerSocket(int port, in_addr_t addr);
 
-    // 채팅 서버 시작
-    // 반환값은 성공 여부 true or false
+    /**
+     * @brief 채팅 서버 시작
+     *
+     * @param numOfWorkerThreads 작업 스레드 수
+     * @return 성공 여부
+    */
     bool Start(int numOfWorkerThreads);
 
-    // 핸들러들을 설정
-    // ConfigureHandlers(true); // JSON 핸들러 설정
-    // ConfigureHandlers(false); // Protobuf 핸들러 설정
+    /**
+     * @brief 메시지 핸들러들 설정
+    */
     void ConfigureMsgHandlers();
 
-    // 채팅 서버 종료
+    /**
+     * @brief 채팅 서버 종료
+    */
     void Stop();
 
 public:
+    /**
+     * @brief Worker Thread의 Entry Point
+    */
+    static void HandleSmallWork();
 
-    //
-    static void HandleSmallWork(); // Worker Thread의 Entry Point
+    /**
+     * @brief 소켓 번호를 기반으로 사용자를 찾는 함수
+     *
+     * @param sock 소켓 번호
+     * @param user 찾은 사용자에 대한 shared_ptr, 찾지 못한 경우 nullptr
+     * @return 찾은 사용자의 여부 (true: 찾음, false: 찾지 못함)
+    */
+    static bool FindUserBySocketNum(int sock, shared_ptr<User>& user); // 주의: usersMutex 사용 중
 
-    // 전달된 소켓 번호와 일치하는 유저를 찾는다.
-    // 찾은 결과는 user 변수에
-    // 반환값은 성공 여부 true or false
-    // ! 주의: usersMutex 를 사용 중
-    static bool FindUserBySocketNum(int sock, shared_ptr<User>& user);
-
+    /**
+     * @brief TCP 포트로 데이터를 전송하는 함수
+     *
+     * @param sock 소켓 번호
+     * @param dataToSend 전송할 데이터
+     * @param bytesToSend 전송할 바이트 수
+    */
     static void CustomSend(int sock, void* dataToSend, int bytesToSend);
 
+    /**
+     * @brief ChatServer의 싱글톤 인스턴스를 생성하는 함수
+     *
+     * @return ChatServer 싱글톤 인스턴스에 대한 참조
+    */
     static ChatServer& CreateSingleton();
-
-private:
-    void Cleanup();
 };
 
 #endif  // CHAT_SERVER_H

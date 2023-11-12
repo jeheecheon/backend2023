@@ -1,18 +1,27 @@
 #include "../include/ChatServer.h"
 
+
+/**
+ * @brief SIGINT 시그널 핸들러 함수: 채팅서버를 종료시키고 자원 정리
+*/
 void HandleTermination(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
 
-    ChatServer& server = ChatServer::CreateSingleton();
-    server.Stop();
+    // Sigleton 인스턴스를 불러옴
+    if (ChatServer::IsRunning.load()) {
+        ChatServer& chatServer = ChatServer::CreateSingleton();
+        chatServer.Stop();
+    }
 
     signal(signum, SIG_DFL);
 }
 
 int main(int argc, char* argv[]) {
+    signal(SIGINT, HandleTermination); // SIGINT 핸들러 등록
+
     // option 입력 방법 출력
-    cout << endl
-         << "--format: <json|protobuf>: 메시지 포맷\n\
+    cout << endl <<
+"--format: <json|protobuf>: 메시지 포맷\n\
     (default: 'json')\n\
 --port: 서버 Port 번호\n\
     (an integer)\n\
@@ -20,88 +29,72 @@ int main(int argc, char* argv[]) {
     (default: '2')\n\
     (an integer)\n";
 
-    int numOfWorkerThreads = 2;
-    int port = -1;
-    bool isJson = true;
+    int numOfWorkerThreads = 2; // Worker threads 개수
+    int port = -1; // 포트 번호
+    bool isJson = true; // Json은 true, protobuf는 false
 
-    // main 으로 전달된 arguments handling
-    bool isInputError = false;
-    for (int i = 1; i < argc; ++i) {
-        // "--"로 시작하는 옵션인 경우
-        if ((strlen(argv[i]) >= 3) && (argv[i][0] == '-') &&
-            (argv[i][1] == '-')) {
-            if (i + 1 < argc) {  // 입력된 옵션에 대응되는 value가 있는 경우
-                // port번호 옵션 handling
-                if (strcmp(argv[i], "--port") == 0) {
-                    try {
+    // Arguments handling
+    try {
+        // argv 문자열 배열 순회
+        for (int i = 1; i < argc; ++i) { 
+            // 문자열 내용이 "--" 로 시작하는 경우
+            if ((strlen(argv[i]) >= 3) && (argv[i][0] == '-') && (argv[i][1] == '-')) {
+                // 입력된 옵션에 대응되는 value가 입력된 경우
+                if (i + 1 < argc) {
+                    // --port 옵션인 경우
+                    if (strcmp(argv[i], "--port") == 0) {
                         port = stoi(argv[i + 1]);
-                    } catch (const exception& e) {
-                        isInputError = true;
-                        break;
+                        if (port < 0)
+                            throw runtime_error("포트 번호는 1 이상이어야 합니다.");
+                        ++i;
                     }
-                    ++i;
-                }
-                // worker thread number옵션 handling
-                else if (strcmp(argv[i], "--workers") == 0) {
-                    try {
+                    // --workers 옵션인 경우
+                    else if (strcmp(argv[i], "--workers") == 0) {
                         numOfWorkerThreads = stoi(argv[i + 1]);
-                    } catch (const exception& e) {
-                        isInputError = true;
-                        break;
+                        if (numOfWorkerThreads <= 0)
+                            throw runtime_error("Worker threads 개수는 1 이상이어야 합니다.");
+                        ++i;
+                    } 
+                    // --format 옵션인 경우
+                    else if (strcmp(argv[i], "--format") == 0) {
+                        if (strcmp(argv[i + 1], "json") == 0)
+                            isJson = true;
+                        else if (strcmp(argv[i + 1], "protobuf") == 0) {
+                            isJson = false;
+                        } else
+                            throw runtime_error("Format은 json 또는 protobuf만 지원됩니다.");
+                        ++i;
                     }
-                    ++i;
-                } else if (strcmp(argv[i], "--format") == 0) {
-                    if (strcmp(argv[i + 1], "json") == 0)
-                        isJson = true;
-                    else if (strcmp(argv[i + 1], "protobuf") == 0) {
-                        isJson = false;
-                    } else {
-                        isInputError = true;
-                        break;
-                    }
-                    ++i;
                 }
-                // 지원하지 않는 옵션이 입력된 경우 입력오류로 처리
-                else {
-                    isInputError = true;
-                    break;
-                }
-            } else {  // 입력된 옵션에 대응되는 value가 없는 경우 입력오류로
-                      // 처리
-                isInputError = true;
-                break;
             }
-        } else {  // "--"로 시작하는 스트링이 아닌 경우 입력오류로 처리
-            isInputError = true;
-            break;
         }
-    }
-    // 입력오류인 경우
-    if (isInputError || port == -1) {
-        cerr << "FATAL Flags parsing error: " <<
-        endl << "Flag --port must have a value other than None." << 
-        endl << "Flag --workers must hava a numeric value." << 
-        endl << "Flag --format must be either json or protobuf." << endl;
-        return -1;
+    } catch (runtime_error & ex) {
+        cerr << "옵션 flags 입력 에러: " << ex.what() <<  endl;
+        return -1;       
     }
 
-    // 서버 세팅
-    //
-    ChatServer& chatServer = ChatServer::CreateSingleton();
+    
+    ChatServer& chatServer = ChatServer::CreateSingleton(); // 채팅서버 인스턴스 생성
 
-    chatServer.SetIsJson(isJson);
+    chatServer.SetIsJson(isJson); // 서버 입출력 형식 설정
 
-    if (!chatServer.OpenServerSocket()) 
+    if (!chatServer.OpenServerSocket()) {
+        cerr << "서버 소켓 오픈 실패" << endl;
+        chatServer.TerminateServer();
         return -1;
+    }
 
-    if (!chatServer.BindServerSocket(port, INADDR_ANY)) 
+    if (!chatServer.BindServerSocket(port, INADDR_ANY)) {
+        cerr << "서버 소켓 바인드 실패" << endl;
+        chatServer.TerminateServer();
         return -1;
+    }
 
-    signal(SIGINT, HandleTermination);
-
-    //서버 시작
-    if (!chatServer.Start(numOfWorkerThreads)) 
+    if (!chatServer.Start(numOfWorkerThreads)) {
+        cerr << "서버 비정상 종료됨" << endl;
+        chatServer.TerminateServer();
         return -1;
+    }
 
     return 0;
 }
