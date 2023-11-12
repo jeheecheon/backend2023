@@ -301,6 +301,11 @@ void ChatServer::TerminateServer() {
     delete _Instance;
 }
 
+bool ChatServer::HasInstance() {
+    return _Instance != nullptr;
+}
+
+
 void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 

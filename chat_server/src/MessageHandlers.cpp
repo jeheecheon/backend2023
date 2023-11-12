@@ -482,14 +482,13 @@ void OnCsChat(int clientSock, const void* data) {
         return;
     }
 
-    const char* userName;
+    string userName;
     bool isUserInRoom = false;
     {
         lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         isUserInRoom = user->roomThisUserIn != nullptr;
-        userName = user->GetUserName().c_str();
+        userName = user->GetUserName();
     }
-
     char* msgToSend = nullptr; // 보낼 메시지
     short bytesToSend; // 보낼 데이터의 바이트 수
 
@@ -507,7 +506,7 @@ void OnCsChat(int clientSock, const void* data) {
 
             // "member" : + 시스템 메시지 추가
             rapidjson::Value memberValue;
-            memberValue.SetString(userName, jsonDoc.GetAllocator());
+            memberValue.SetString(userName.c_str(), jsonDoc.GetAllocator());
             jsonDoc.AddMember("member", memberValue, jsonDoc.GetAllocator());
 
             // "text" : + 시스템 메시지 추가

@@ -8,7 +8,7 @@ void HandleTermination(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
 
     // Sigleton 인스턴스를 불러옴
-    if (ChatServer::IsRunning.load()) {
+    if (ChatServer::HasInstance()) {
         ChatServer& chatServer = ChatServer::CreateSingleton();
         chatServer.Stop();
     }

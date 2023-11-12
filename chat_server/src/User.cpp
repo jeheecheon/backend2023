@@ -1,8 +1,10 @@
 #include "../include/User.h"
-
+#include <iostream>
 using namespace std;
 
-User::User() {}
+User::User() {
+    userName = "None";
+}
 
 User::~User() {}
 
@@ -19,8 +21,7 @@ bool User::operator<(const User& other) const {
 }
 
 string User::GetUserName() const {
-    if (!userName.empty())
+    if (userName != "None")
         return userName;
-
     return PortAndIpIntoString();
 }

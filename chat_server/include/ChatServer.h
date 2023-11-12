@@ -155,6 +155,13 @@ public:
 
 public:
     /**
+     * @brief ChatServer의 Singletone 인스턴스가 있는지 확인하는 함수
+     *
+     * @return Singleton Instance의 존재 유무를 bool로 반환한다.
+    */
+    static bool HasInstance();
+
+    /**
      * @brief Worker Thread의 Entry Point
     */
     static void HandleSmallWork();
