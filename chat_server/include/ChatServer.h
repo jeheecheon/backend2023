@@ -66,13 +66,14 @@ public:
     // Worker Threads 의 작업 Queue
     static queue<SmallWork> SmallWorkQueue;
     static mutex SmallWorkQueueMutex;
-    static condition_variable SmallWorkQueueAdded;
+    static condition_variable SmallWorkAdded;
     // ----------------------------------------------
 
     // ----------------------------------------------
     // 처리 되지 않은 메시지가 남아있는 클아이언트 Queue
     static unordered_set<int> SocketsOnQueue;
     static mutex SocketsOnQueueMutex;
+    static condition_variable SocketsOnQueueAddable;
     // ----------------------------------------------
 
     // ----------------------------------------------

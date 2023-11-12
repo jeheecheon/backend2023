@@ -25,8 +25,9 @@ set<shared_ptr<User>> ChatServer::Users;
 mutex ChatServer::UsersMutex;
 queue<SmallWork> ChatServer::SmallWorkQueue;
 mutex ChatServer::SmallWorkQueueMutex;
-condition_variable ChatServer::SmallWorkQueueAdded;
+condition_variable ChatServer::SmallWorkAdded;
 unordered_set<int> ChatServer::SocketsOnQueue;
+condition_variable ChatServer::SocketsOnQueueAddable;
 mutex ChatServer::SocketsOnQueueMutex;
 unordered_map<string, ChatServer::MessageHandler> ChatServer::JsonHandlers;
 unordered_map<mju::Type::MessageType, ChatServer::MessageHandler> ChatServer::ProtobufHandlers;
@@ -186,16 +187,22 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             {
-                lock_guard<mutex> socketsOnQueueLock(SocketsOnQueueMutex);
+                unique_lock<mutex> socketOnQueueLock(SocketsOnQueueMutex);
 
-                SocketsOnQueue.insert(client); // 해당소켓의 과거 메시지가 처리 중인지 확인하기 위해 소켓번호를 보관
+                // 클라이언트 소켓의 과거 메시지가 아직 처리 중인지 확인
+                while (SocketsOnQueue.find(client) != SocketsOnQueue.end()) 
+                    SocketsOnQueueAddable.wait(socketOnQueueLock); // 과거 메시지의 처리 완료를 기다림
+
+                // 클라이언트의 소켓번호를 다시 추가하여 해당 소켓의 새 메시지가 다시 메시지 처리 중임을 알림
+                SocketsOnQueue.insert(client); //
             }
+            
             {
                 lock_guard<mutex> smallWorkQueueLock(SmallWorkQueueMutex);
 
                 // 메시지를 작업 큐에 삽입 및 worker를 깨움
                 SmallWorkQueue.push({data, client});
-                SmallWorkQueueAdded.notify_one();
+                SmallWorkAdded.notify_one();
             }
         }
 
@@ -305,7 +312,7 @@ void ChatServer::HandleSmallWork() {
 
             // 할일이 올때까지 기다림
             while (TerminateSignal.load() == false && SmallWorkQueue.empty())
-                SmallWorkQueueAdded.wait_for(smallWorkQueueLock, chrono::milliseconds(100));
+                SmallWorkAdded.wait_for(smallWorkQueueLock, chrono::milliseconds(100));
 
             // 할일을 꺼냄
             work = SmallWorkQueue.front();
@@ -414,14 +421,14 @@ void ChatServer::HandleSmallWork() {
             // ProtobufHandlers[messageType](work.dataOwner, work.dataToParse);
         }
         {
-            
+            // 여기까지 도달했을 경우 메시지 처리가 완료된 경우이다.
             unique_lock<mutex> socketsOnQueueLock(SocketsOnQueueMutex);
 
-            // 메시지 처리를 마침.
-            // SocketsOnQueue에 현재 유저 소켓번호가 들어 있기 때문에
-            // 과거 메시지가 처리받지 못 하고 쌓여있을 수 있음.
-            // 유저소켓을 이제 제거해줌
+            // SocketsOnQueue에 소켓번호를 지워줌으로써 해당 소켓의 이후의 메시지를 이제 처리가능함을 알림
             SocketsOnQueue.erase(work.dataOwner);
+
+            // 메인 쓰레드가 해당 메시지의 처리 완료를 기다리고 있을 수 있음
+            SocketsOnQueueAddable.notify_one();
         }
     }
 
