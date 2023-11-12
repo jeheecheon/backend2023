@@ -172,17 +172,77 @@ void OnCsCreateRoom(int clientSock, const void* data) {
         cerr << "Failed to find the matching user with sock num....!!!!!";
         return;
     }
-// 대화 방에 있을 때는 방을 개설 할 수 없습니다.
-    shared_ptr<Room> newRoom;
-    int roomId;
+
+    // 유저가 이미 접속한 방이 있는지 확인
+    bool isUserInRoom;
     {
-        lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
-        newRoom = make_shared<Room>(title);
-        ChatServer::Rooms.insert(newRoom);
-        roomId = newRoom->roomId;
+        lock_guard<mutex> usersLock(ChatServer::UsersMutex);
+        isUserInRoom = user->roomThisUserIn != nullptr;
+        cout << isUserInRoom << endl;
     }
 
-    OnCsJoinRoom(clientSock, (const void*)&roomId);
+    int roomId;
+    // 유저가 속한 방이 없는 경우 새로운 방을 생성
+    if (!isUserInRoom) {
+        shared_ptr<Room> newRoom;
+        newRoom = make_shared<Room>(title);
+        roomId = newRoom->roomId;
+
+        ChatServer::RoomsMutex.lock();
+        ChatServer::Rooms.insert(newRoom);
+        ChatServer::RoomsMutex.unlock();
+
+        // 생성한 방에 접속
+        OnCsJoinRoom(clientSock, (const void*)&roomId);
+    }
+    // 유저가 속한 방이 이미 있는 경우
+    else {
+        string text = "대화 방에 있을 때는 다른 방에 들어갈 수 없습니다.";
+        char* msgToSend = nullptr; // 보낼 메시지
+        short bytesToSend; // 보낼 데이터의 바이트 수
+
+        if (ChatServer::IsJson) {
+            // RapidJSON document 생성
+            rapidjson::Document jsonDoc;
+            jsonDoc.SetObject();
+
+            // "type" : "SCSystemMessage" 추가
+            rapidjson::Value typeValue;
+            typeValue.SetString("SCSystemMessage", jsonDoc.GetAllocator());
+            jsonDoc.AddMember("type", typeValue, jsonDoc.GetAllocator());
+
+            // "text" : + 시스템 메시지 추가
+            rapidjson::Value textValue;
+            textValue.SetString(text.c_str(), jsonDoc.GetAllocator());
+            jsonDoc.AddMember("text", textValue, jsonDoc.GetAllocator());
+
+            // document 를 json string으로 변환
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            jsonDoc.Accept(writer);
+            string jsonString = buffer.GetString();
+
+            // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
+            short msgBytesInBigEnndian = htons(jsonString.length());
+            bytesToSend = jsonString.length() + 2;
+            msgToSend = new char[bytesToSend];
+            memcpy(msgToSend, &msgBytesInBigEnndian, 2);
+            memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
+        } 
+        // protobuf 포맷
+        else {
+            // TODO
+        }
+
+        // 메시지 전송
+        if (msgToSend != nullptr) {
+            {
+                ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
+            
+                delete[] msgToSend;
+            }
+        }
+    }
 }
 
 void OnCsJoinRoom(int clientSock, const void* data) {
