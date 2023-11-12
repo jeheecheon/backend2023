@@ -20,7 +20,7 @@
 #include <condition_variable>
 
 #include "SmallWork.h"
-#include "../protobuf/message.pb.h"
+#include "message.pb.h"
 #include "../include/MessageHandlers.h"
 #include "Room.h"
 
