@@ -186,6 +186,38 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 continue;
             }
 
+            SmallWork work;
+            work.dataOwner = client;
+
+            // Protobuf 포맷
+            if (!IsJson) {
+                shared_ptr<mju::Type> type = make_shared<mju::Type>();
+                type->ParseFromArray((const void*)data, numRecv);
+                work.msgTypeForProtobuf = type->type();
+
+                // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
+                if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
+                    continue;
+
+                if (numRecv != 2) {
+                    cerr << "첫 두 바이트에는 항상 뒤따라오는 메시지의 바이트수가 들어있어야 함" << endl;
+                    continue;
+                }
+
+                bytesToReceive = ntohs(bytesToReceive);
+
+                // 나머지 메시지 데이터를 모두 읽어옴
+                if (!CustomReceive(client, data, bytesToReceive, numRecv))
+                    continue;
+                if (numRecv != bytesToReceive) {
+                    cerr << "메시지 일부 손실되었음..." << endl;
+                    continue;
+                }
+                work.bytesOfDataForProtobuf = numRecv;
+            }
+
+            work.dataToParse = data;
+
             {
                 unique_lock<mutex> socketOnQueueLock(SocketsOnQueueMutex);
 
@@ -201,7 +233,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 lock_guard<mutex> smallWorkQueueLock(SmallWorkQueueMutex);
 
                 // 메시지를 작업 큐에 삽입 및 worker를 깨움
-                SmallWorkQueue.push({data, client});
+                SmallWorkQueue.push(work);
                 SmallWorkAdded.notify_one();
             }
         }
@@ -353,7 +385,7 @@ void ChatServer::HandleSmallWork() {
                         if (jsonDoc.HasMember("name") && jsonDoc["name"].IsString()) {
                             string name = jsonDoc["name"].GetString();
                             if (!name.empty()) {
-                                JsonHandlers[typeValue](work.dataOwner, (void*)name.c_str());
+                                JsonHandlers[typeValue](work.dataOwner, (const void*)name.c_str());
                             }
                             else throw runtime_error("Empty name...");
                         }
@@ -368,7 +400,7 @@ void ChatServer::HandleSmallWork() {
                         if (jsonDoc.HasMember("title") && jsonDoc["title"].IsString()) {
                             string title = jsonDoc["title"].GetString();
                             if (!title.empty())
-                                JsonHandlers[typeValue](work.dataOwner, (void*)title.c_str());
+                                JsonHandlers[typeValue](work.dataOwner, (const void*)title.c_str());
                             else throw runtime_error("Empty title...");
                         }
                         else throw runtime_error("Empty title...");
@@ -377,7 +409,7 @@ void ChatServer::HandleSmallWork() {
                     else if (typeValue == "CSJoinRoom") {
                         if (jsonDoc.HasMember("roomId") && jsonDoc["roomId"].IsInt()) {
                             int roomId = jsonDoc["roomId"].GetInt();
-                            JsonHandlers[typeValue](work.dataOwner, (void*)&roomId);
+                            JsonHandlers[typeValue](work.dataOwner, (const void*)&roomId);
                         }
                         else throw runtime_error("No roomId provided or failed to parse JSON");
                     } 
@@ -390,7 +422,7 @@ void ChatServer::HandleSmallWork() {
                         if (jsonDoc.HasMember("text") && jsonDoc["text"].IsString()) {
                             string text = jsonDoc["text"].GetString();
                             if (!text.empty())
-                                JsonHandlers[typeValue](work.dataOwner, (void*)text.c_str());
+                                JsonHandlers[typeValue](work.dataOwner, (const void*)text.c_str());
                             else throw runtime_error("Empty text...");
                         }
                         else throw runtime_error("Empty text...");
@@ -405,25 +437,47 @@ void ChatServer::HandleSmallWork() {
             } else // Type 멤버가 없는 경우 잘못된 메시지 형식
                 cerr << "Missing or invalid 'type' key in JSON data." << endl;
 
+        // Protobuf 포맷으로 설정 되어있는 경우
         } else {  
             // protobuf로 처리중인 경우
-            // protobuf 는 두 개의 메시지로 분리하여 전송 받음
-            // 첫 번째 메시지가 MessageType
-            // 두 번째 메시지는 세부 타입이다
+            unique_ptr<mju::CSName> nameProtobuf;
+            unique_ptr<mju::CSCreateRoom> createRoomProtobuf;
+            unique_ptr<mju::CSJoinRoom> joinRoomProtobuf;
+            unique_ptr<mju::CSChat> chatProtobuf;
 
-            // mju::Type type;
-            // type.ParseFromString(work.dataToParse);
-            // mju::Type::MessageType messageType(type.type());
-
-            // switch (messageType) {
-            //     case 0:
-            //         mju::CSName* csName = new mju::CSName;
-            //         csName->ParseFromString(work.dataToParse);
-            //         cout << csName->name().length() << endl;
-            //         break;
-            // }
-
-            // ProtobufHandlers[messageType](work.dataOwner, work.dataToParse);
+            switch (work.msgTypeForProtobuf) {
+            case mju::Type_MessageType::Type_MessageType_CS_NAME:
+                nameProtobuf = make_unique<mju::CSName>();
+                nameProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)nameProtobuf->name().c_str());
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_ROOMS:
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_CREATE_ROOM:
+                createRoomProtobuf = make_unique<mju::CSCreateRoom>();
+                createRoomProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)createRoomProtobuf->title().c_str());
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_JOIN_ROOM:
+                joinRoomProtobuf = make_unique<mju::CSJoinRoom>();
+                joinRoomProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                int temp;
+                temp = static_cast<int>(joinRoomProtobuf->roomid()); // 초기화
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)&temp);
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_LEAVE_ROOM:
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_CHAT:
+                chatProtobuf = make_unique<mju::CSChat>();
+                chatProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, chatProtobuf->text().c_str());
+                break;
+            case mju::Type_MessageType::Type_MessageType_CS_SHUTDOWN:
+                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                break;
+            }
         }
         {
             // 여기까지 도달했을 경우 메시지 처리가 완료된 경우이다.
