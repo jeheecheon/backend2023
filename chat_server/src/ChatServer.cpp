@@ -181,7 +181,6 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             bytesToReceive = ntohs(bytesToReceive);
-
             // 나머지 메시지 데이터를 모두 읽어옴
             if (!CustomReceive(client, data, bytesToReceive, numRecv))
                 continue;
@@ -508,6 +507,12 @@ void ChatServer::CustomSend(int sock, void* dataToSend, int bytesToSend) {
 }
 
 bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
+    if (size == 0) {
+        numRecv = 0;
+        return true;
+    } else if (size < 0)
+        return false;
+
     numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
 
     if (numRecv == 0) {
