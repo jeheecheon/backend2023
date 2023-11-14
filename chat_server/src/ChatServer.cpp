@@ -104,6 +104,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
     IsRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
 
+    shared_ptr<mju::Type> typeForProtobuf = nullptr;
+
     // 종료 시그널 오기 전까지 서버 실행
     while (TerminateSignal.load() == false) {
         fd_set rset;
@@ -190,35 +192,22 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
             SmallWork work;
             work.dataOwner = client;
+            work.dataToParse = data;
 
             // Protobuf 포맷
             if (!IsJson) {
-                shared_ptr<mju::Type> type = make_shared<mju::Type>();
-                type->ParseFromArray((const void*)data, numRecv);
-                work.msgTypeForProtobuf = type->type();
-
-                // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
-                if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
-                    continue;
-
-                if (numRecv != 2) {
-                    cerr << "첫 두 바이트에는 항상 뒤따라오는 메시지의 바이트수가 들어있어야 함" << endl;
+                if (typeForProtobuf == nullptr) {
+                    typeForProtobuf = make_shared<mju::Type>();
+                    typeForProtobuf->ParseFromArray((const void*)data, numRecv);
+                    typeForProtobuf->PrintDebugString();
                     continue;
                 }
-
-                bytesToReceive = ntohs(bytesToReceive);
-
-                // 나머지 메시지 데이터를 모두 읽어옴
-                if (!CustomReceive(client, data, bytesToReceive, numRecv))
-                    continue;
-                if (numRecv != bytesToReceive) {
-                    cerr << "메시지 일부 손실되었음..." << endl;
-                    continue;
+                else {
+                    work.bytesOfDataForProtobuf = numRecv;
+                    work.msgTypeForProtobuf = typeForProtobuf->type();
+                    typeForProtobuf = nullptr;
                 }
-                work.bytesOfDataForProtobuf = numRecv;
             }
-
-            work.dataToParse = data;
 
             {
                 unique_lock<mutex> socketOnQueueLock(SocketsOnQueueMutex);
@@ -355,12 +344,12 @@ void ChatServer::HandleSmallWork() {
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             jsonDoc.Accept(writer);
-            cout << "JSON Data: " << buffer.GetString() << endl;
 
             // Json 데이터 Type 멤버 값 확인
             if (jsonDoc.HasMember("type") && jsonDoc["type"].IsString()) {
                 // Type 멤버 값 추출
                 const string typeValue = jsonDoc["type"].GetString();
+                cout << "type: " << typeValue << endl;
 
                 try {
                     // CSName 메시지
@@ -422,46 +411,52 @@ void ChatServer::HandleSmallWork() {
 
         // Protobuf 포맷으로 설정 되어있는 경우
         } else {  
-            // protobuf로 처리중인 경우
-            unique_ptr<mju::CSName> nameProtobuf;
-            unique_ptr<mju::CSCreateRoom> createRoomProtobuf;
-            unique_ptr<mju::CSJoinRoom> joinRoomProtobuf;
-            unique_ptr<mju::CSChat> chatProtobuf;
-
             switch (work.msgTypeForProtobuf) {
-            case mju::Type_MessageType::Type_MessageType_CS_NAME:
-                nameProtobuf = make_unique<mju::CSName>();
-                nameProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)nameProtobuf->name().c_str());
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_ROOMS:
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_CREATE_ROOM:
-                createRoomProtobuf = make_unique<mju::CSCreateRoom>();
-                createRoomProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)createRoomProtobuf->title().c_str());
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_JOIN_ROOM:
-                joinRoomProtobuf = make_unique<mju::CSJoinRoom>();
-                joinRoomProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
-                int temp;
-                temp = static_cast<int>(joinRoomProtobuf->roomid()); // 초기화
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)&temp);
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_LEAVE_ROOM:
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_CHAT:
-                chatProtobuf = make_unique<mju::CSChat>();
-                chatProtobuf->ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, chatProtobuf->text().c_str());
-                break;
-            case mju::Type_MessageType::Type_MessageType_CS_SHUTDOWN:
-                ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
-                break;
+            case mju::Type_MessageType::Type_MessageType_CS_NAME: {
+                    mju::CSName nameProtobuf;
+                    nameProtobuf.ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                    nameProtobuf.PrintDebugString();
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)nameProtobuf.name().c_str());
+                    break;
+                }
+            case mju::Type_MessageType::Type_MessageType_CS_ROOMS: {
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                    break;
+                }
+            case mju::Type_MessageType::Type_MessageType_CS_CREATE_ROOM: {
+                    mju::CSCreateRoom createRoomProtobuf;
+                    createRoomProtobuf.ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)createRoomProtobuf.title().c_str());
+                    break;
+                }
+            case mju::Type_MessageType::Type_MessageType_CS_JOIN_ROOM: {
+                    mju::CSJoinRoom joinRoomProtobuf;
+                    joinRoomProtobuf.ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                    int temp;
+                    temp = static_cast<int>(joinRoomProtobuf.roomid()); // 초기화
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, (const void*)&temp);
+                    break;
+                }
+            case mju::Type_MessageType::Type_MessageType_CS_LEAVE_ROOM: {
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                    break;
+                }
+            case mju::Type_MessageType::Type_MessageType_CS_CHAT:{
+                    mju::CSChat chatProtobuf;
+                    chatProtobuf.ParseFromArray((const void*)work.dataToParse, work.bytesOfDataForProtobuf);
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, chatProtobuf.text().c_str());
+                    break;
+                }   
+            case mju::Type_MessageType::Type_MessageType_CS_SHUTDOWN: {
+                    ProtobufHandlers[work.msgTypeForProtobuf](work.dataOwner, nullptr);
+                    break;
+                }
+            default: {
+                    cout << "지원하지 않는 MessageType" << endl;
+                }
             }
         }
+
         {
             // 여기까지 도달했을 경우 메시지 처리가 완료된 경우이다.
             unique_lock<mutex> socketsOnQueueLock(SocketsOnQueueMutex);

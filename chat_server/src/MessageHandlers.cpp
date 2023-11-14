@@ -52,17 +52,17 @@ void OnCsName(int clientSock, const void* data) {
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         jsonDoc.Accept(writer);
-        string jsonString = buffer.GetString();
+        string SCSystemMessageString = buffer.GetString();
 
         char* msgToSend = nullptr; // 보낼 메시지
         short bytesToSend; // 보낼 데이터의 바이트 수
 
         // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
-        short msgBytesInBigEnndian = htons(jsonString.length());
-        bytesToSend = jsonString.length() + 2;
+        short msgBytesInBigEnndian = htons(SCSystemMessageString.length());
+        bytesToSend = SCSystemMessageString.length() + 2;
         msgToSend = new char[bytesToSend];
         memcpy(msgToSend, &msgBytesInBigEnndian, 2);
-        memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
+        memcpy(msgToSend + 2, SCSystemMessageString.c_str(), SCSystemMessageString.length());
 
         // 데이터 전송
         {
@@ -92,7 +92,7 @@ void OnCsName(int clientSock, const void* data) {
         mju::SCSystemMessage sysMessage;
         sysMessage.set_text(text);
         const string sysMessageString = sysMessage.SerializeAsString();
-        
+
         // 보낼 데이터 변수 선언
         char* dataToSend = new char[2 + typeString.length() + 2 + sysMessageString.length()];
 
@@ -114,12 +114,11 @@ void OnCsName(int clientSock, const void* data) {
 }
 
 void OnCsRooms(int clientSock, const void* data) {
-
-    char* msgToSend = nullptr; // 보낼 메시지
-    short bytesToSend; // 보낼 데이터의 바이트 수
-
     // json 포맷
     if (ChatServer::IsJson) { // SCRoomsResult
+        char* msgToSend = nullptr; // 보낼 메시지
+        short bytesToSend; // 보낼 데이터의 바이트 수
+
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
         jsonDoc.SetObject();
@@ -135,18 +134,22 @@ void OnCsRooms(int clientSock, const void* data) {
             {
                 lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
+                // roomsArray에 내용 추가
                 for (auto& r : ChatServer::Rooms) {
-                    // Room 1
+                    // room 객체 선언
                     rapidjson::Value roomObject(kObjectType);
                     
+                    // roomId 추가 
                     rapidjson::Value roomIdValue;
                     roomIdValue.SetInt(r->roomId);
                     roomObject.AddMember("roomId", roomIdValue, jsonDoc.GetAllocator());
 
+                    // title 추가
                     rapidjson::Value titleString;
                     titleString.SetString(r->title.c_str(), jsonDoc.GetAllocator());
                     roomObject.AddMember("title", titleString, jsonDoc.GetAllocator());
 
+                    // members 추가
                     rapidjson::Value membersArray(kArrayType);
                     for (auto& u : ChatServer::Users) {
                         rapidjson::Value memberName;
@@ -156,17 +159,21 @@ void OnCsRooms(int clientSock, const void* data) {
                     }
                     roomObject.AddMember("members", membersArray, jsonDoc.GetAllocator());
 
+                    // room 객체 추가
                     roomsArray.PushBack(roomObject, jsonDoc.GetAllocator());
                 }
             }
         }
+        // roomsArray를 json Document에 추가
         jsonDoc.AddMember("rooms", roomsArray, jsonDoc.GetAllocator());
 
-        // Convert the document to a JSON string
+        // document 를 json string으로 변환
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         jsonDoc.Accept(writer);
         string jsonString = buffer.GetString();
+
+        // json 출력
         cout << jsonString << endl;
 
         // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
@@ -175,15 +182,15 @@ void OnCsRooms(int clientSock, const void* data) {
         msgToSend = new char[bytesToSend];
         memcpy(msgToSend, &msgBytesInBigEnndian, 2);
         memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
+        
+        // 데이터 전송
+        ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
+
+        delete[] msgToSend;
     }
     // protobuf 포맷
     else {
 
-    }
-    // 메시지 전송
-    if (msgToSend != nullptr) {
-        ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
-        delete[] msgToSend;
     }
 }
 
