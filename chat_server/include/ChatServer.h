@@ -52,13 +52,13 @@ public:
 
     // ----------------------------------------------
     // 채팅방 
-    static set<shared_ptr<Room>> Rooms;
+    static unordered_set<shared_ptr<Room>> Rooms;
     static mutex RoomsMutex;
     // ----------------------------------------------
 
     // ----------------------------------------------
     // 유저
-    static set<shared_ptr<User>> Users; 
+    static unordered_set<shared_ptr<User>> Users; 
     static mutex UsersMutex;
     // ----------------------------------------------
 
