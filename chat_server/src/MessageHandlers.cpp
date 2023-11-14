@@ -307,7 +307,7 @@ void OnCsCreateRoom(int clientSock, const void* data) {
             memcpy(msgToSend, &msgBytesInBigEnndian, 2);
             memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
 
-
+            // 데이터 전송
             ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
 
             delete[] msgToSend;
@@ -434,6 +434,7 @@ void OnCsJoinRoom(int clientSock, const void* data) {
         memcpy(msgToSendForUserGettingIn, &msgBytesInBigEnndian, 2);
         memcpy(msgToSendForUserGettingIn + 2, jsonStringForUserGettingIn.c_str(), jsonStringForUserGettingIn.length());
 
+        // 데이터 전송
         ChatServer::CustomSend(clientSock, msgToSendForUserGettingIn, bytesToSendForUserGettingIn);
         
         delete[] msgToSendForUserGettingIn;
@@ -468,6 +469,7 @@ void OnCsJoinRoom(int clientSock, const void* data) {
             memcpy(msgToSendForOtherUsers, &msgBytesInBigEnndian, 2);
             memcpy(msgToSendForOtherUsers + 2, jsonStringForOtherUsers.c_str(), jsonStringForOtherUsers.length());
 
+            // 데이터 전송
             {
                 lock_guard<mutex> usersLock(ChatServer::UsersMutex);
                 
@@ -737,7 +739,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 }
 
 void OnCsChat(int clientSock, const void* data) {
-    string text = (char*)data;
+    string text = (char*)data; // 전달된 채팅 내용
 
     // 해당 clientSock을 가지는 유저를 찾는다
     shared_ptr<User> user;
@@ -746,15 +748,13 @@ void OnCsChat(int clientSock, const void* data) {
         return;
     }
 
-    string userName;
-    bool isUserInRoom = false;
+    string userName; // 유저 이름
+    bool isUserInRoom = false; // 유저가 채팅방에 있는지
     {
         lock_guard<mutex> usersLock(ChatServer::UsersMutex);
-        isUserInRoom = user->roomThisUserIn != nullptr;
-        userName = user->GetUserName();
+        isUserInRoom = user->roomThisUserIn != nullptr; // 유저의 채팅방 접속 여부를 구함
+        userName = user->GetUserName(); // 유저이름을 구함
     }
-    char* msgToSend = nullptr; // 보낼 메시지
-    short bytesToSend; // 보낼 데이터의 바이트 수
 
     // json 포맷
     if (ChatServer::IsJson) {
@@ -795,21 +795,63 @@ void OnCsChat(int clientSock, const void* data) {
         jsonDoc.Accept(writer);
         string jsonString = buffer.GetString();
 
+        char* msgToSend = nullptr; // 보낼 메시지
+        short bytesToSend; // 보낼 데이터의 바이트 수
+
         // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
         short msgBytesInBigEnndian = htons(jsonString.length());
         bytesToSend = jsonString.length() + 2;
         msgToSend = new char[bytesToSend];
         memcpy(msgToSend, &msgBytesInBigEnndian, 2);
         memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
+
+        // 데이터 전송
+        {
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
+            {
+                lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
+
+                if (isUserInRoom) {
+                    for (auto& u : user->roomThisUserIn->usersInThisRoom)
+                        if (u->socketNumber != clientSock)
+                            ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
+                }
+            }
+        }
+
+        if (!isUserInRoom)
+            ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
+        
+        delete[] msgToSend;
     }
     // protobuf 포맷
     else {
+        if (isUserInRoom) {
+            // 먼저 보낼 Type 메시지 생성
+            mju::Type type;
+            type.set_type(mju::Type::MessageType::Type_MessageType_SC_CHAT);
+            const string typeString = type.SerializeAsString();
 
-    }
+            // 뒤 따라 보낼 SCChat 메시지 생성
+            mju::SCChat chat;
+            chat.set_text(text);
+            chat.set_member(userName.c_str());
+            const string chatString = chat.SerializeAsString();
 
-    // 메시지 전송
-    if (msgToSend != nullptr) {
-        {   
+            // 보낼 데이터 변수 선언
+            char* dataToSend = new char[2 + typeString.length() + 2 + chatString.length()];
+
+            // 먼저 보낼 Type 메시지를 먼저 dataToSend에 넣어줌
+            short bytesInBigEndian = htons(typeString.length());
+            memcpy(dataToSend, &bytesInBigEndian, 2);
+            memcpy(dataToSend + 2, typeString.c_str(), typeString.length());
+
+            // 뒤 따라 보낼 SCSystemMessage 메시지를 dataToSend에 넣어줌
+            bytesInBigEndian = htons(chatString.length());
+            memcpy(dataToSend + 2 + typeString.length(), &bytesInBigEndian, 2);
+            memcpy(dataToSend + 2 + typeString.length() + 2, chatString.c_str(), chatString.length());
+
+            // 데이터 전송
             {
                 lock_guard<mutex> usersLock(ChatServer::UsersMutex);
                 {
@@ -818,15 +860,41 @@ void OnCsChat(int clientSock, const void* data) {
                     if (isUserInRoom) {
                         for (auto& u : user->roomThisUserIn->usersInThisRoom)
                             if (u->socketNumber != clientSock)
-                                ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
+                                ChatServer::CustomSend(u->socketNumber, dataToSend, 2 + typeString.length() + 2 + chatString.length());
                     }
                 }
             }
 
-            if (!isUserInRoom)
-                ChatServer::CustomSend(clientSock, msgToSend, bytesToSend);
-            
-            delete[] msgToSend;
+            delete[] dataToSend;   
+        }
+        else {
+            // 먼저 보낼 Type 메시지 생성
+            mju::Type type;
+            type.set_type(mju::Type::MessageType::Type_MessageType_SC_SYSTEM_MESSAGE);
+            const string typeString = type.SerializeAsString();
+
+            // 뒤 따라 보낼 SCSystemMessage 메시지 생성
+            mju::SCSystemMessage sysMessage;
+            sysMessage.set_text("현재 대화방에 들어가 있지 않습니다.");
+            const string sysMessageString = sysMessage.SerializeAsString();
+
+            // 보낼 데이터 변수 선언
+            char* dataToSend = new char[2 + typeString.length() + 2 + sysMessageString.length()];
+
+            // 먼저 보낼 Type 메시지를 먼저 dataToSend에 넣어줌
+            short bytesInBigEndian = htons(typeString.length());
+            memcpy(dataToSend, &bytesInBigEndian, 2);
+            memcpy(dataToSend + 2, typeString.c_str(), typeString.length());
+
+            // 뒤 따라 보낼 SCSystemMessage 메시지를 dataToSend에 넣어줌
+            bytesInBigEndian = htons(sysMessageString.length());
+            memcpy(dataToSend + 2 + typeString.length(), &bytesInBigEndian, 2);
+            memcpy(dataToSend + 2 + typeString.length() + 2, sysMessageString.c_str(), sysMessageString.length());
+
+            // 데이터 전송
+            ChatServer::CustomSend(clientSock, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+
+            delete[] dataToSend;   
         }
     }
 }
