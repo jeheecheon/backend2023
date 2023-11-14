@@ -248,12 +248,15 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 {
                     lock_guard<mutex> roomsLock(RoomsMutex);
                     
-                    shared_ptr<Room> room = userFound->roomThisUserIn; // 유저가 속한 방
-                    room->usersInThisRoom.erase(userFound); // 유저를 내쫓음
-                    
-                    // 방에 아무도 없으면 방을 폭파시킴
-                    if (room->usersInThisRoom.size() == 0)
-                        Rooms.erase(room);
+                    // 유저가 속한 채팅방이 있는 경우
+                    if (userFound->roomThisUserIn != nullptr) {
+                        shared_ptr<Room> room = userFound->roomThisUserIn; // 유저가 속한 방
+                        room->usersInThisRoom.erase(userFound); // 유저를 내쫓음
+                        
+                        // 방에 아무도 없으면 방을 폭파시킴
+                        if (room->usersInThisRoom.size() == 0)
+                            Rooms.erase(room);
+                    }
                         
                     // 유저 정보를 삭제
                     Users.erase(userFound);
