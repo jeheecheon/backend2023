@@ -12,7 +12,7 @@ using namespace rapidjson;
 using namespace std;
 
 void OnCsName(int clientSock, const void* data) {    
-    string name = (char*)data; // Neither null nor empty.. Have Checked it already!!!!!!!
+    string name = (char*)data; // 변경할 이름
 
     // 해당 clientSock을 가지는 유저를 찾는다
     shared_ptr<User> user;
@@ -31,9 +31,6 @@ void OnCsName(int clientSock, const void* data) {
 
     // 보낼 메시지 내용을 미리 만든다
     string text = prevName + " 의 이름이 " + name + " 으로 변경되었습니다.";
-
-    char* msgToSend = nullptr; // 보낼 메시지
-    short bytesToSend; // 보낼 데이터의 바이트 수
 
     // json 포맷
     if (ChatServer::IsJson) {
@@ -57,20 +54,17 @@ void OnCsName(int clientSock, const void* data) {
         jsonDoc.Accept(writer);
         string jsonString = buffer.GetString();
 
+        char* msgToSend = nullptr; // 보낼 메시지
+        short bytesToSend; // 보낼 데이터의 바이트 수
+
         // json 앞에 json의 바이트수 추가하여 보낼 데이터 생성
         short msgBytesInBigEnndian = htons(jsonString.length());
         bytesToSend = jsonString.length() + 2;
         msgToSend = new char[bytesToSend];
         memcpy(msgToSend, &msgBytesInBigEnndian, 2);
         memcpy(msgToSend + 2, jsonString.c_str(), jsonString.length());
-    } 
-    // protobuf 포맷
-    else {
-        // TODO
-    }
 
-    // 메시지 전송
-    if (msgToSend != nullptr) {
+        // 데이터 전송
         {
             lock_guard<mutex> usersLock(ChatServer::UsersMutex);
             {
@@ -83,9 +77,39 @@ void OnCsName(int clientSock, const void* data) {
                         ChatServer::CustomSend(u->socketNumber, msgToSend, bytesToSend);
                 }
             }
-            
-            delete[] msgToSend;
         }
+
+        delete[] msgToSend;
+    } 
+    // protobuf 포맷
+    else {
+        // 먼저 보낼 Type 메시지 생성
+        mju::Type type;
+        type.set_type(mju::Type::MessageType::Type_MessageType_SC_SYSTEM_MESSAGE);
+        const string typeString = type.SerializeAsString();
+
+        // 뒤 따라 보낼 SCSystemMessage 메시지 생성
+        mju::SCSystemMessage sysMessage;
+        sysMessage.set_text(text);
+        const string sysMessageString = sysMessage.SerializeAsString();
+        
+        // 보낼 데이터 변수 선언
+        char* dataToSend = new char[2 + typeString.length() + 2 + sysMessageString.length()];
+
+        // 먼저 보낼 Type 메시지를 먼저 dataToSend에 넣어줌
+        short bytesInBigEndian = htons(typeString.length());
+        memcpy(dataToSend, &bytesInBigEndian, 2);
+        memcpy(dataToSend + 2, typeString.c_str(), typeString.length());
+
+        // 뒤 따라 보낼 SCSystemMessage 메시지를 dataToSend에 넣어줌
+        bytesInBigEndian = htons(sysMessageString.length());
+        memcpy(dataToSend + 2 + typeString.length(), &bytesInBigEndian, 2);
+        memcpy(dataToSend + 2 + typeString.length() + 2, sysMessageString.c_str(), sysMessageString.length());
+
+        // 데이터 전송
+        ChatServer::CustomSend(clientSock, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+
+        delete[] dataToSend;
     }
 }
 
@@ -247,7 +271,6 @@ void OnCsCreateRoom(int clientSock, const void* data) {
 
 void OnCsJoinRoom(int clientSock, const void* data) {
     // 방번호는 클라이언트에서 확인을 거침
-
     int roomId = *((int*)data);
 
 
