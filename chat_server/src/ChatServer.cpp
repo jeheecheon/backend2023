@@ -84,7 +84,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         cerr << "채팅 서버 실행 실패..." << endl;
         return false;
     }
-    IsRunning.store(true);
+
     struct sockaddr_in sin;
 
     // 서버 소켓을 passive socket 으로 변경
@@ -102,7 +102,9 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     for (int i = 0; i < numOfWorkerThreads; ++i)
         _workers.push_back(thread(HandleSmallWork));
 
-    // 종료 시그널 오기 전까지 실행
+    IsRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
+
+    // 종료 시그널 오기 전까지 서버 실행
     while (TerminateSignal.load() == false) {
         fd_set rset;
         FD_ZERO(&rset);
@@ -280,28 +282,6 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     return true;
 }
 
-bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
-    numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
-
-    if (numRecv == 0) {
-        cout << "Socket closed: " << clientSock << endl;
-        {
-            _willClose.insert(clientSock);
-            return false;
-        }
-    } else if (numRecv < 0) {
-        cerr << "recv() failed: " << strerror(errno)
-             << ", clientSock: " << clientSock << endl;
-        {
-            _willClose.insert(clientSock);
-            return false;
-        }
-    }
-    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock << endl;
-
-    return true;
-}
-
 void ChatServer::ConfigureMsgHandlers() {
     if (IsJson) {
         // JSON handler 등록
@@ -325,7 +305,10 @@ void ChatServer::ConfigureMsgHandlers() {
 }
 
 void ChatServer::Stop() {
-    TerminateSignal.store(true);
+    if (IsRunning)
+        TerminateServer();
+    else
+        TerminateSignal.store(true);
 }
 
 void ChatServer::TerminateServer() {
@@ -496,7 +479,6 @@ void ChatServer::HandleSmallWork() {
     return;
 }
 
-
 bool ChatServer::FindUserBySocketNum(int sock, shared_ptr<User>& user) {
     // ! 주의: UsersMutex 를 사용 중
 
@@ -528,6 +510,28 @@ void ChatServer::CustomSend(int sock, void* dataToSend, int bytesToSend) {
             offset += numSend;
         }
     }
+}
+
+bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numRecv) {
+    numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
+
+    if (numRecv == 0) {
+        cout << "Socket closed: " << clientSock << endl;
+        {
+            _willClose.insert(clientSock);
+            return false;
+        }
+    } else if (numRecv < 0) {
+        cerr << "recv() failed: " << strerror(errno)
+             << ", clientSock: " << clientSock << endl;
+        {
+            _willClose.insert(clientSock);
+            return false;
+        }
+    }
+    cout << "Received: " << numRecv << " bytes, clientSock: " << clientSock << endl;
+
+    return true;
 }
 
 ChatServer& ChatServer::CreateSingleton() {

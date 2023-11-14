@@ -73,7 +73,6 @@ int main(int argc, char* argv[]) {
         return -1;       
     }
 
-    
     ChatServer& chatServer = ChatServer::CreateSingleton(); // 채팅서버 인스턴스 생성
 
     chatServer.SetIsJson(isJson); // 서버 입출력 형식 설정
