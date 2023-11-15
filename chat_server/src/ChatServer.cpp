@@ -100,7 +100,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
     ConfigureMsgHandlers(); // 메시지 핸들러 등록
 
-    // Worker thread 에서 Main Thread 로 통신 가능한 pipe 생성
+    // Worker thread 에서 Main Thread 로 통신 위한 pipe
+    // shutdown 명령어 입력 시 읽기 이벤트 읽음
     if (pipe(WorkersToMainPipe) == -1) { // 워커 쓰레드를 아직 생성하지 않았으므로 아직 쓰레드간 경합 상황 고려 대상이 아님 
         cerr << "Workers to main pipe 생성 중 에러 발생" << endl;
         return -1;
@@ -119,6 +120,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         fd_set rset;
         FD_ZERO(&rset);
         FD_SET(_serverSocket, &rset);
+        
+        // file descriptor는 singleton 인스턴스가 삭제될 때까지 변경되지 않으므로 쓰레드간 경합 고려 하지 않음
         FD_SET(WorkersToMainPipe[READ_END], &rset);
 
         // 소켓들을 fd_set에 등록
@@ -140,6 +143,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
         // Worker thread 로부터 종료 신호를 받은 경우
         if (FD_ISSET(WorkersToMainPipe[READ_END], &rset)) {
+            lock_guard<mutex> pipeLock(WorkersToMainWriteEndMutex);
             ChatServer::DestroySigleton();
             break;    
         }

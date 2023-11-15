@@ -32,7 +32,7 @@ void OnCsName(int clientSock, const void* data) {
     // 보낼 메시지 내용을 미리 만든다
     string text = prevName + " 의 이름이 " + name + " 으로 변경되었습니다.";
 
-    // json 포맷
+    // json 포맷 메시지 전송
     if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
@@ -81,7 +81,7 @@ void OnCsName(int clientSock, const void* data) {
 
         delete[] msgToSend;
     } 
-    // protobuf 포맷
+    // protobuf 포맷 메시지 전송
     else {
         // 먼저 보낼 Type 메시지 생성
         mju::Type type;
@@ -114,7 +114,7 @@ void OnCsName(int clientSock, const void* data) {
 }
 
 void OnCsRooms(int clientSock, const void* data) {
-    // json 포맷
+    // json 포맷 메시지 전송
     if (ChatServer::IsJson) { // SCRoomsResult
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
@@ -185,7 +185,7 @@ void OnCsRooms(int clientSock, const void* data) {
 
         delete[] msgToSend;
     }
-    // protobuf 포맷
+    // protobuf 포맷 메시지 전송
     else {
         // 먼저 보낼 Type 메시지 생성
         mju::Type type;
@@ -274,7 +274,7 @@ void OnCsCreateRoom(int clientSock, const void* data) {
     // 유저가 속한 방이 이미 있는 경우
     else {
         string text = "대화 방에 있을 때는 방을 개설 할 수 없습니다.";
-
+        // Json 포맷 메시지 전송
         if (ChatServer::IsJson) {
             // RapidJSON document 생성
             rapidjson::Document jsonDoc;
@@ -311,7 +311,7 @@ void OnCsCreateRoom(int clientSock, const void* data) {
 
             delete[] msgToSend;
         } 
-        // protobuf 포맷
+        // protobuf 포맷 메시지 전송
         else {
             // 먼저 보낼 Type 메시지 생성
             mju::Type type;
@@ -396,7 +396,7 @@ void OnCsJoinRoom(int clientSock, const void* data) {
         }
     }
 
-    // json 포맷
+    // json 포맷 메시지 전송
     if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDocForUserGettingIn;
@@ -478,7 +478,7 @@ void OnCsJoinRoom(int clientSock, const void* data) {
             delete[] msgToSendForOtherUsers;
         }
     } 
-    // protobuf 포맷
+    // protobuf 포맷 메시지 전송
     else {
         // 먼저 보낼 Type 메시지 생성
         mju::Type type;
@@ -583,7 +583,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
             textForUserExiting = "현재 대화방에 들어가 있지 않습니다.";
     }
 
-    // json 포맷
+    // json 포맷 메시지 전송
     if (ChatServer::IsJson) {        
         // RapidJSON document 생성
         rapidjson::Document jsonDocForUserExiting;
@@ -622,7 +622,6 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
 
         // 채팅방에 유저 1명 이상 존재하는 경우 
         if (isAnyoneInRoom) {
-            cout << "asdasdasdasd" << endl;
             // 새로운 JSON 문자열을 만들기 위해 jsonDoc 초기화
             rapidjson::Document jsonDocForOtherUsers;
             jsonDocForOtherUsers.SetObject();
@@ -667,7 +666,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
             delete[] msgToSendForOtherUsers;
         }
     }
-    // protobuf 포맷
+    // protobuf 포맷 메시지 전송
     else {
         // 먼저 보낼 Type 메시지 생성
         mju::Type type;
@@ -750,7 +749,7 @@ void OnCsChat(int clientSock, const void* data) {
         userName = user->GetUserName(); // 유저이름을 구함
     }
 
-    // json 포맷
+    // json 포맷 메시지 전송
     if (ChatServer::IsJson) {
         // RapidJSON document 생성
         rapidjson::Document jsonDoc;
@@ -818,7 +817,7 @@ void OnCsChat(int clientSock, const void* data) {
         
         delete[] msgToSend;
     }
-    // protobuf 포맷
+    // protobuf 포맷 메시지 전송
     else {
         if (isUserInRoom) {
             // 먼저 보낼 Type 메시지 생성
