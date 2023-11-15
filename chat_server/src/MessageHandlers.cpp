@@ -255,7 +255,6 @@ void OnCsCreateRoom(int clientSock, const void* data) {
     {
         lock_guard<mutex> usersLock(ChatServer::UsersMutex);
         isUserInRoom = user->roomThisUserIn != nullptr;
-        cout << isUserInRoom << endl;
     }
 
     int roomId;
@@ -704,7 +703,7 @@ void OnCsLeaveRoom(int clientSock, const void* data) {
         delete[] dataToSend;
         dataToSend = nullptr;
 
-        if (!isAnyoneInRoom) {
+        if (isAnyoneInRoom) {
             sysMessage.set_text(textForOtherUsers);
             sysMessageString = sysMessage.SerializeAsString();
 
@@ -899,7 +898,9 @@ void OnCsChat(int clientSock, const void* data) {
     }
 }
 
+#include <sys/ioctl.h>
+
 void OnCsShutDown(int clientSock, const void* data) {
-    ChatServer& server = ChatServer::CreateSingleton();
-    server.Stop();
+    send(clientSock, "test", 4, MSG_OOB);
+    ChatServer::DestroySigleton();
 }

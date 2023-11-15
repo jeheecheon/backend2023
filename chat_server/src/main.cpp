@@ -8,10 +8,8 @@ void HandleTermination(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
 
     // Sigleton 인스턴스를 불러옴
-    if (ChatServer::HasInstance()) {
-        ChatServer& chatServer = ChatServer::CreateSingleton();
-        chatServer.Stop();
-    }
+    if (ChatServer::HasInstance())
+        ChatServer::DestroySigleton(); // Sigleton 인스턴스 삭제
 
     signal(signum, SIG_DFL);
 }
@@ -79,19 +77,19 @@ int main(int argc, char* argv[]) {
 
     if (!chatServer.OpenServerSocket()) {
         cerr << "서버 소켓 오픈 실패" << endl;
-        chatServer.TerminateServer();
+        chatServer.DestroySigleton();
         return -1;
     }
 
     if (!chatServer.BindServerSocket(port, INADDR_ANY)) {
         cerr << "서버 소켓 바인드 실패" << endl;
-        chatServer.TerminateServer();
+        chatServer.DestroySigleton();
         return -1;
     }
 
     if (!chatServer.Start(numOfWorkerThreads)) {
         cerr << "서버 비정상 종료됨" << endl;
-        chatServer.TerminateServer();
+        chatServer.DestroySigleton();
         return -1;
     }
 

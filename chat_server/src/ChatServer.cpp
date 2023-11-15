@@ -17,8 +17,8 @@ using namespace std;
 // 정적 맴버 초기화
 ChatServer* ChatServer::_Instance = nullptr;
 bool ChatServer::IsJson = true;
-volatile atomic<bool> ChatServer::TerminateSignal;
-volatile atomic<bool> ChatServer::IsRunning;
+volatile atomic<bool> ChatServer::_terminateSignal;
+volatile atomic<bool> ChatServer::_isRunning;
 unordered_set<shared_ptr<Room>> ChatServer::Rooms;
 mutex ChatServer::RoomsMutex;
 unordered_set<shared_ptr<User>> ChatServer::Users;
@@ -80,7 +80,7 @@ bool ChatServer::BindServerSocket(int port, in_addr_t addr) {
 }
 
 bool ChatServer::Start(int numOfWorkerThreads) {
-    if (IsRunning.load() || !_isOpened || !_isBinded) {
+    if (_isRunning.load() || !_isOpened || !_isBinded) {
         cerr << "채팅 서버 실행 실패..." << endl;
         return false;
     }
@@ -90,7 +90,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     // 서버 소켓을 passive socket 으로 변경
     if (listen(_serverSocket, 10) < 0) {
         cerr << "listen() failed: " << strerror(errno) << endl;
-        IsRunning.store(false);
+        _isRunning.store(false);
         return false;
     }
 
@@ -102,12 +102,12 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     for (int i = 0; i < numOfWorkerThreads; ++i)
         _workers.push_back(thread(HandleSmallWork));
 
-    IsRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
+    _isRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
 
     shared_ptr<mju::Type> typeForProtobuf = nullptr;
 
     // 종료 시그널 오기 전까지 서버 실행
-    while (TerminateSignal.load() == false) {
+    while (_terminateSignal.load() == false) {
         fd_set rset;
         FD_ZERO(&rset);
         FD_SET(_serverSocket, &rset);
@@ -126,7 +126,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         timeout.tv_usec = 100000;  // 100 milliseconds
         
         // 읽기 이벤트를 기다림
-        int numReady = select(maxFd + 1, &rset, NULL, NULL, &timeout);
+        int numReady = select(maxFd + 1, &rset, nullptr, nullptr, &timeout);
         if (numReady < 0) {
             cerr << "select() failed: " << strerror(errno) << endl;
             continue;
@@ -181,6 +181,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             bytesToReceive = ntohs(bytesToReceive);
+
             // 나머지 메시지 데이터를 모두 읽어옴
             if (!CustomReceive(client, data, bytesToReceive, numRecv))
                 continue;
@@ -269,60 +270,24 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     }
 
     cout << "Main thread 종료 중" << endl;
-    TerminateServer();
+
+    _isRunning.store(false);
+    DestroySigleton();
+
     return true;
 }
-
-void ChatServer::ConfigureMsgHandlers() {
-    if (IsJson) {
-        // JSON handler 등록
-        JsonHandlers["CSName"] = OnCsName;
-        JsonHandlers["CSRooms"] = OnCsRooms;
-        JsonHandlers["CSCreateRoom"] = OnCsCreateRoom;
-        JsonHandlers["CSJoinRoom"] = OnCsJoinRoom;
-        JsonHandlers["CSLeaveRoom"] = OnCsLeaveRoom;
-        JsonHandlers["CSChat"] = OnCsChat;
-        JsonHandlers["CSShutdown"] = OnCsShutDown;
-    } else {
-        // Protobuf handler 등록
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] = OnCsName;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] = OnCsRooms;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM] = OnCsCreateRoom;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] = OnCsJoinRoom;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM] = OnCsLeaveRoom;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] = OnCsChat;
-        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] = OnCsShutDown;
-    }
-}
-
-void ChatServer::Stop() {
-    if (IsRunning)
-        TerminateServer();
-    else
-        TerminateSignal.store(true);
-}
-
-void ChatServer::TerminateServer() {
-    TerminateSignal.store(true);
-    delete _Instance;
-}
-
-bool ChatServer::HasInstance() {
-    return _Instance != nullptr;
-}
-
 
 void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
     // 종료 시그널을 받을 때까지 반복
-    while (!TerminateSignal.load()) {
+    while (!_terminateSignal.load()) {
         SmallWork work;
         {
             unique_lock<mutex> smallWorkQueueLock(SmallWorkQueueMutex);
 
             // 할일이 올때까지 기다림
-            while (TerminateSignal.load() == false && SmallWorkQueue.empty())
+            while (_terminateSignal.load() == false && SmallWorkQueue.empty())
                 SmallWorkAdded.wait_for(smallWorkQueueLock, chrono::milliseconds(100));
 
             // 할일을 꺼냄
@@ -330,7 +295,7 @@ void ChatServer::HandleSmallWork() {
             SmallWorkQueue.pop();
         }
         // 종료 시그널이 받은 경우 반복문 탈출
-        if (TerminateSignal.load())
+        if (_terminateSignal.load())
             break;
 
         // Json 포맷으로 설정 되어있는 경우
@@ -537,23 +502,58 @@ bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numR
     return true;
 }
 
+void ChatServer::ConfigureMsgHandlers() {
+    if (IsJson) {
+        // JSON handler 등록
+        JsonHandlers["CSName"] = OnCsName;
+        JsonHandlers["CSRooms"] = OnCsRooms;
+        JsonHandlers["CSCreateRoom"] = OnCsCreateRoom;
+        JsonHandlers["CSJoinRoom"] = OnCsJoinRoom;
+        JsonHandlers["CSLeaveRoom"] = OnCsLeaveRoom;
+        JsonHandlers["CSChat"] = OnCsChat;
+        JsonHandlers["CSShutdown"] = OnCsShutDown;
+    } else {
+        // Protobuf handler 등록
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_NAME] = OnCsName;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_ROOMS] = OnCsRooms;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CREATE_ROOM] = OnCsCreateRoom;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_JOIN_ROOM] = OnCsJoinRoom;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_LEAVE_ROOM] = OnCsLeaveRoom;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_CHAT] = OnCsChat;
+        ProtobufHandlers[mju::Type::MessageType::Type_MessageType_CS_SHUTDOWN] = OnCsShutDown;
+    }
+}
+
 ChatServer& ChatServer::CreateSingleton() {
-    if (_Instance == NULL)
+    if (_Instance == nullptr)
         _Instance = new ChatServer();
     return *_Instance;
 }
 
+void ChatServer::DestroySigleton() {
+    if (_Instance != nullptr) {
+        // 서버가 실행 중인 경우 종료 시그널을 보낸 후 인스턴스를 정리
+        if (_isRunning.load())
+            _terminateSignal.store(true);
+        // 서버가 종료되었을 때 Singleton 인스턴스 정리
+        else
+            delete _Instance;
+    }
+}
+
+bool ChatServer::HasInstance() {
+    return _Instance != nullptr;
+}
+
 ChatServer::ChatServer() {
+    _isRunning.store(false);
     _serverSocket = -1;
     _isBinded = false;
     _isOpened = false;
-    IsRunning.store(false);
-    TerminateSignal.store(false);
+    _terminateSignal.store(false);
 }
 
 ChatServer::~ChatServer() {
-    IsRunning.store(false);
-
     // 소켓 정리
     if (_serverSocket != -1)
         close(_serverSocket);
@@ -563,13 +563,16 @@ ChatServer::~ChatServer() {
     // Worker threads 정리
     if (_workers.size() > 0) {
         cout << "작업 Thread 정리 중" << endl;
-        for (auto& worker : _workers)
-            if (worker.joinable()) {
-                cout << "작업 쓰레드 join() 시작" << endl;
+        int cnt = 0;
+        for (auto& worker : _workers) {
+            cout << "작업 쓰레드 join() 시작: " << ++cnt << endl;
+            if (worker.joinable()) 
                 worker.join();
-                cout << "작업 쓰레드 join() 완료" << endl;
-            }
+            cout << "작업 쓰레드 join() 완료: " << cnt << endl;
+        }
+            
     }
-        
+
+    _isRunning.store(false);
     _Instance = nullptr;
 }

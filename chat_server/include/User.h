@@ -24,7 +24,6 @@ public:
     string ipAddress; // 아이피
     in_port_t port; // 포트 번호
     string userName; // 유저 이름
-
 public:
     /**
      * @brief User 생성자

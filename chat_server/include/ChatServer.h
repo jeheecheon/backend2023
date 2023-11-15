@@ -43,12 +43,10 @@ private:
     unordered_set<int> _willClose; // 종료 예정인 클라이언트 소켓 set
 
     static ChatServer* _Instance; // Singleton 인스턴스
+    static volatile atomic<bool> _terminateSignal; // 서버 종료 시그널
+    static volatile atomic<bool> _isRunning; // 서버가 실행중인지
 public:
     static bool IsJson; // 서버 입출력 JSON 포맷 = true, Protobuf 포맷 = false
-
-    static volatile atomic<bool> TerminateSignal; // 서버 종료 시그널
-
-    static volatile atomic<bool> IsRunning; // 서버가 실행중인지
 
     // ----------------------------------------------
     // 채팅방 
@@ -82,7 +80,6 @@ public:
     static unordered_map<string, MessageHandler> JsonHandlers;
     static unordered_map<mju::Type::MessageType, MessageHandler> ProtobufHandlers;
     // ----------------------------------------------
-
 private:
     /**
      * @brief ChatServer 생성자 (private로 선언하여 Singleton 패턴 구현)
@@ -104,9 +101,6 @@ private:
      * @brief 채팅 서버 자원 정리하는 함수
     */
 public:
-    
-    void TerminateServer();
-
     /**
      * @brief ChatServer 소멸자
     */
@@ -147,12 +141,6 @@ public:
      * @brief 메시지 핸들러들 설정
     */
     void ConfigureMsgHandlers();
-
-    /**
-     * @brief 채팅 서버 종료
-    */
-    void Stop();
-
 public:
     /**
      * @brief ChatServer의 Singletone 인스턴스가 있는지 확인하는 함수
@@ -190,6 +178,11 @@ public:
      * @return ChatServer 싱글톤 인스턴스에 대한 참조
     */
     static ChatServer& CreateSingleton();
+
+    /**
+     * @brief Sigleton Instance 제거
+    */
+    static void DestroySigleton();
 };
 
 #endif  // CHAT_SERVER_H
