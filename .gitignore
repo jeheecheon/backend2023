@@ -4,3 +4,6 @@ test*
 !test*.py
 !test*.txt
 /lab4/mybinary
+
+# /chat_server
+chat_server/*.out
