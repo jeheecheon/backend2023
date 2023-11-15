@@ -101,7 +101,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     ConfigureMsgHandlers(); // 메시지 핸들러 등록
 
     // Worker thread 에서 Main Thread 로 통신 가능한 pipe 생성
-    if (pipe(WorkersToMainPipe) == -1) { // 워커 쓰레드를 아직 생성하지 않았으므로 아직 쓰레드간 경합 상황이 아님 
+    if (pipe(WorkersToMainPipe) == -1) { // 워커 쓰레드를 아직 생성하지 않았으므로 아직 쓰레드간 경합 상황 고려 대상이 아님 
         cerr << "Workers to main pipe 생성 중 에러 발생" << endl;
         return -1;
     }
@@ -297,18 +297,18 @@ void ChatServer::HandleSmallWork() {
             unique_lock<mutex> smallWorkQueueLock(SmallWorkQueueMutex);
 
             // 할일이 올때까지 기다림
-            while (_TerminateSignal.load() == false && SmallWorkQueue.empty()) {
+            while (_TerminateSignal.load() == false && SmallWorkQueue.empty()) 
+                SmallWorkAdded.wait(smallWorkQueueLock);
 
-                SmallWorkAdded.wait_for(smallWorkQueueLock, chrono::milliseconds(100));
-            }
+            // 종료 시그널이 받은 경우 반복문 탈출
+            if (_TerminateSignal.load())
+                break;
 
             // 할일을 꺼냄
             work = SmallWorkQueue.front();
             SmallWorkQueue.pop();
         }
-        // 종료 시그널이 받은 경우 반복문 탈출
-        if (_TerminateSignal.load())
-            break;
+
 
         // Json 포맷으로 설정 되어있는 경우
         if (IsJson) {
@@ -545,9 +545,11 @@ void ChatServer::DestroySigleton() {
         // 서버가 실행 중인 경우 종료 시그널을 보낸 후 인스턴스를 정리
         if (_IsRunning.load())
             _TerminateSignal.store(true);
-        // 서버가 종료되었을 때 Singleton 인스턴스 정리
-        else
+        // 서버 실행 종료 되었을 때 Singleton 인스턴스 정리
+        else {
+            SmallWorkAdded.notify_all();
             delete _Instance;
+        }
     }
 }
 
@@ -575,8 +577,7 @@ ChatServer::~ChatServer() {
             if (worker.joinable()) 
                 worker.join();
             cout << "작업 쓰레드 join() 완료: " << cnt << endl;
-        }
-            
+        } 
     }
 
     // 소켓 정리
