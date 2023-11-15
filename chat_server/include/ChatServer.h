@@ -26,6 +26,9 @@
 
 using namespace std;
 
+const int READ_END = 0;
+const int WRITE_END = 1;
+
 /**
  * @class ChatServer
  * @brief 채팅 서버 클래스
@@ -43,10 +46,16 @@ private:
     unordered_set<int> _willClose; // 종료 예정인 클라이언트 소켓 set
 
     static ChatServer* _Instance; // Singleton 인스턴스
-    static volatile atomic<bool> _terminateSignal; // 서버 종료 시그널
-    static volatile atomic<bool> _isRunning; // 서버가 실행중인지
+    static volatile atomic<bool> _TerminateSignal; // 서버 종료 시그널
+    static volatile atomic<bool> _IsRunning; // 서버가 실행중인지
 public:
     static bool IsJson; // 서버 입출력 JSON 포맷 = true, Protobuf 포맷 = false
+
+    // ----------------------------------------------
+    // workers -> main 통신 pipe, shutdown 명령어 지원을 위함  
+    static int WorkersToMainPipe[2];
+    static mutex WorkersToMainWriteEndMutex;
+    // ----------------------------------------------
 
     // ----------------------------------------------
     // 채팅방 
@@ -141,7 +150,7 @@ public:
      * @brief 메시지 핸들러들 설정
     */
     void ConfigureMsgHandlers();
-public:
+
     /**
      * @brief ChatServer의 Singletone 인스턴스가 있는지 확인하는 함수
      *

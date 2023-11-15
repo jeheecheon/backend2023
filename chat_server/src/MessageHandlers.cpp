@@ -893,9 +893,9 @@ void OnCsChat(int clientSock, const void* data) {
     }
 }
 
-#include <sys/ioctl.h>
-
 void OnCsShutDown(int clientSock, const void* data) {
-    send(clientSock, "test", 4, MSG_OOB);
-    ChatServer::DestroySigleton();
+    string randomStr = "Signal to Terminate";
+    ChatServer::WorkersToMainWriteEndMutex.lock();
+    write(ChatServer::WorkersToMainPipe[WRITE_END], randomStr.c_str(), randomStr.length() + 1);
+    ChatServer::WorkersToMainWriteEndMutex.unlock();
 }

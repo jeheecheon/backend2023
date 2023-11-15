@@ -12,13 +12,15 @@
 #include "../include/rapidjson/writer.h"
 
 using namespace rapidjson;
-using namespace std;
+using std::cout;
 
 // 정적 맴버 초기화
 ChatServer* ChatServer::_Instance = nullptr;
 bool ChatServer::IsJson = true;
-volatile atomic<bool> ChatServer::_terminateSignal;
-volatile atomic<bool> ChatServer::_isRunning;
+volatile atomic<bool> ChatServer::_TerminateSignal;
+volatile atomic<bool> ChatServer::_IsRunning;
+int ChatServer::WorkersToMainPipe[2];
+mutex ChatServer::WorkersToMainWriteEndMutex;
 unordered_set<shared_ptr<Room>> ChatServer::Rooms;
 mutex ChatServer::RoomsMutex;
 unordered_set<shared_ptr<User>> ChatServer::Users;
@@ -80,7 +82,7 @@ bool ChatServer::BindServerSocket(int port, in_addr_t addr) {
 }
 
 bool ChatServer::Start(int numOfWorkerThreads) {
-    if (_isRunning.load() || !_isOpened || !_isBinded) {
+    if (_IsRunning.load() || !_isOpened || !_isBinded) {
         cerr << "채팅 서버 실행 실패..." << endl;
         return false;
     }
@@ -90,7 +92,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
     // 서버 소켓을 passive socket 으로 변경
     if (listen(_serverSocket, 10) < 0) {
         cerr << "listen() failed: " << strerror(errno) << endl;
-        _isRunning.store(false);
+        _IsRunning.store(false);
         return false;
     }
 
@@ -98,19 +100,26 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
     ConfigureMsgHandlers(); // 메시지 핸들러 등록
 
+    // Worker thread 에서 Main Thread 로 통신 가능한 pipe 생성
+    if (pipe(WorkersToMainPipe) == -1) { // 워커 쓰레드를 아직 생성하지 않았으므로 아직 쓰레드간 경합 상황이 아님 
+        cerr << "Workers to main pipe 생성 중 에러 발생" << endl;
+        return -1;
+    }
+
     // Worker Threads 생성
     for (int i = 0; i < numOfWorkerThreads; ++i)
         _workers.push_back(thread(HandleSmallWork));
 
-    _isRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
+    _IsRunning.store(true); // 서버 실행 중임을 뜻하는 Flag를 true로 저장
 
     shared_ptr<mju::Type> typeForProtobuf = nullptr;
 
     // 종료 시그널 오기 전까지 서버 실행
-    while (_terminateSignal.load() == false) {
+    while (_TerminateSignal.load() == false) {
         fd_set rset;
         FD_ZERO(&rset);
         FD_SET(_serverSocket, &rset);
+        FD_SET(WorkersToMainPipe[READ_END], &rset);
 
         // 소켓들을 fd_set에 등록
         int maxFd = _serverSocket;
@@ -120,18 +129,20 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (client > maxFd) 
                 maxFd = client;
         }
-
-        struct timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 100000;  // 100 milliseconds
         
         // 읽기 이벤트를 기다림
-        int numReady = select(maxFd + 1, &rset, nullptr, nullptr, &timeout);
+        int numReady = select(maxFd + 1, &rset, nullptr, nullptr, nullptr);
         if (numReady < 0) {
             cerr << "select() failed: " << strerror(errno) << endl;
             continue;
         } else if (numReady == 0)
             continue;
+
+        // Worker thread 로부터 종료 신호를 받은 경우
+        if (FD_ISSET(WorkersToMainPipe[READ_END], &rset)) {
+            ChatServer::DestroySigleton();
+            break;    
+        }
 
         // 서버 소켓에 읽기 이벤트가 발생한 경우
         if (FD_ISSET(_serverSocket, &rset)) {
@@ -270,7 +281,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
 
     cout << "Main thread 종료 중" << endl;
 
-    _isRunning.store(false);
+    _IsRunning.store(false);
     DestroySigleton();
 
     return true;
@@ -280,21 +291,23 @@ void ChatServer::HandleSmallWork() {
     cout << "메시지 작업 쓰레드 #" << this_thread::get_id() << " 생성" << endl;
 
     // 종료 시그널을 받을 때까지 반복
-    while (!_terminateSignal.load()) {
+    while (!_TerminateSignal.load()) {
         SmallWork work;
         {
             unique_lock<mutex> smallWorkQueueLock(SmallWorkQueueMutex);
 
             // 할일이 올때까지 기다림
-            while (_terminateSignal.load() == false && SmallWorkQueue.empty())
+            while (_TerminateSignal.load() == false && SmallWorkQueue.empty()) {
+
                 SmallWorkAdded.wait_for(smallWorkQueueLock, chrono::milliseconds(100));
+            }
 
             // 할일을 꺼냄
             work = SmallWorkQueue.front();
             SmallWorkQueue.pop();
         }
         // 종료 시그널이 받은 경우 반복문 탈출
-        if (_terminateSignal.load())
+        if (_TerminateSignal.load())
             break;
 
         // Json 포맷으로 설정 되어있는 경우
@@ -530,8 +543,8 @@ ChatServer& ChatServer::CreateSingleton() {
 void ChatServer::DestroySigleton() {
     if (_Instance != nullptr) {
         // 서버가 실행 중인 경우 종료 시그널을 보낸 후 인스턴스를 정리
-        if (_isRunning.load())
-            _terminateSignal.store(true);
+        if (_IsRunning.load())
+            _TerminateSignal.store(true);
         // 서버가 종료되었을 때 Singleton 인스턴스 정리
         else
             delete _Instance;
@@ -543,20 +556,16 @@ bool ChatServer::HasInstance() {
 }
 
 ChatServer::ChatServer() {
-    _isRunning.store(false);
+    _IsRunning.store(false);
     _serverSocket = -1;
     _isBinded = false;
     _isOpened = false;
-    _terminateSignal.store(false);
+    _TerminateSignal.store(false);
+    WorkersToMainPipe[READ_END] = -1;
+    WorkersToMainPipe[WRITE_END] = -1; // Singleton 인스턴스가 없을 때는 쓰레드간 경합 상황이 아님 
 }
 
 ChatServer::~ChatServer() {
-    // 소켓 정리
-    if (_serverSocket != -1)
-        close(_serverSocket);
-    for (auto& client : _clients) 
-        close(client);
-
     // Worker threads 정리
     if (_workers.size() > 0) {
         cout << "작업 Thread 정리 중" << endl;
@@ -570,6 +579,21 @@ ChatServer::~ChatServer() {
             
     }
 
-    _isRunning.store(false);
+    // 소켓 정리
+    if (_serverSocket != -1)
+        close(_serverSocket);
+    for (auto& client : _clients) 
+        close(client);
+
+    // pipe 정리
+    if (WorkersToMainPipe[READ_END] != -1 && WorkersToMainPipe[WRITE_END] != -1) {
+        lock_guard<mutex> pipeLock(WorkersToMainWriteEndMutex);
+        close(WorkersToMainPipe[READ_END]);
+        close(WorkersToMainPipe[WRITE_END]);
+        WorkersToMainPipe[READ_END] = -1;
+        WorkersToMainPipe[WRITE_END] = -1;
+    }
+
+    _IsRunning.store(false);
     _Instance = nullptr;
 }
