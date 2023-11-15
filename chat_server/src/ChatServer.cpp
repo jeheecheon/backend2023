@@ -260,11 +260,10 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                     }
                         
                     // 유저 정보를 삭제
+                    cout << "클라이언트" + userFound->PortAndIpAndNameToString() + ": 상대방이 소켓을 닫았음" << endl;
                     Users.erase(userFound);
                 }
             }
-
-            cout << "Closed: " << clientSock << endl;
         }
         _willClose.clear();
     }
@@ -484,14 +483,12 @@ bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numR
     numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
 
     if (numRecv == 0) {
-        cout << "Socket closed: " << clientSock << endl;
         {
             _willClose.insert(clientSock);
             return false;
         }
     } else if (numRecv < 0) {
-        cerr << "recv() failed: " << strerror(errno)
-             << ", clientSock: " << clientSock << endl;
+        cerr << "recv() failed: " << strerror(errno) << ", clientSock: " << clientSock << endl;
         {
             _willClose.insert(clientSock);
             return false;

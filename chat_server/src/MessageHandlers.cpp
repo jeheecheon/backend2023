@@ -356,49 +356,44 @@ void OnCsJoinRoom(int clientSock, const void* data) {
 
     bool isUserInRoom; // 유저가 채팅방에 들어가 있는지
     bool roomFound = false; // 전달된 채팅방번호와 매칭되는 채팅방이 있는지
-    string textForOtherUsers;
+    string userName;
+    string roomTitle;
+    string textForOtherUsers; // 대화방에 있는 유저들에게 메시지
+    string textForUserGettingIn; // join시도중인 유저에게 메시지
     {
         lock_guard<mutex> usersLock(ChatServer::UsersMutex);
 
-        //유저가 채팅방에 접속해 있지 않은 경우
         isUserInRoom = user->roomThisUserIn != nullptr;
+        //유저가 채팅방에 접속해 있지 않은 경우
         if (!isUserInRoom) {
             lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
 
-            // 입력된 채팅방 번호와 일치하는 방을 찾아 접속 시킨다
+            userName = user->GetUserName();
+
+            // 입력된 채팅방 번호와 일치하는 방을 찾는다
             for (auto r : ChatServer::Rooms)
                 if (r->roomId == roomId) {
                     r->usersInThisRoom.insert(user);
                     user->roomThisUserIn = r;
                     roomFound = true;
+                    roomTitle = r->title;
                     break;
                 }
-            if (roomFound) {            
-                // 보낼 메시지 내용을 미리 만든다
-                textForOtherUsers = user->GetUserName() + " 님이 입장했습니다.";
-            }
         }
     }
-
-    // 보낼 메시지 내용을 미리 만든다
-    string textForUserGettingIn;
-    {
-        lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
-
-        // 접속한 채팅방이 있으면
-        if (isUserInRoom) 
-            textForUserGettingIn = "대화 방에 있을 때는 다른 방에 들어갈 수 없습니다.";
-        // 접속한 채팅방이 없으면
-        else if ((!isUserInRoom)) {
-            for (auto r : ChatServer::Rooms) 
-                if (r->roomId == roomId) {
-                    textForUserGettingIn = "방제[" + r->title + "] 방에 입장했습니다.";
-                    break;
-                }
+    // 입력된 채팅방 번호와 일치하는 방이 없는 경우
+    if (!roomFound)
+        textForUserGettingIn = "대화방이 존재하지 않습니다."; 
+    // 입력된 채팅방 번호와 일치하는 방이 있는 경우
+    else {
+        //유저가 채팅방에 이미 접속해 있는 경우
+        if (isUserInRoom)
+            textForUserGettingIn = "대화 방에 있을 때는 다른 방에 들어갈 수 없습니다.";  
+        //유저가 채팅방에 접속해 있지 않은 경우 
+        else {
+            textForOtherUsers = user->GetUserName() + " 님이 입장했습니다.";
+            textForUserGettingIn = "방제[" + roomTitle + "] 방에 입장했습니다.";
         }
-        // 전달된 채팅방번호와 매칭되는 채팅방이 없으면
-        else
-            textForUserGettingIn = "대화방이 존재하지 않습니다.";
     }
 
     // json 포맷
