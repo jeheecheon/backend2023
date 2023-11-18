@@ -13,7 +13,7 @@ string User::PortAndIpIntoString() const {
     return "('" + ipAddress + "', " + to_string(ntohs(port)) + ")";
 }
 
-string User::PortAndIpAndNameToString() const {
+string User::PortAndIpAndNameIntoString() const {
     return "[" + PortAndIpIntoString() + ":" + userName + "]"; 
 }
 
