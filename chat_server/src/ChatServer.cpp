@@ -121,7 +121,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
         FD_ZERO(&rset);
         FD_SET(_serverSocket, &rset);
         
-        // file descriptor는 singleton 인스턴스가 삭제될 때까지 변경되지 않으므로 쓰레드간 경합 고려 하지 않음
+        // Read end는 인스턴스가 삭제될 때까지 변경되지 않으므로 쓰레드간 경합 고려 하지 않음
         FD_SET(WorkersToMainPipe[READ_END], &rset);
 
         // 소켓들을 fd_set에 등록
@@ -142,9 +142,10 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             continue;
 
         // Worker thread 로부터 종료 신호를 받은 경우
+        // Read end는 인스턴스가 삭제될 때까지 변경되지 않으므로 쓰레드간 경합 고려 하지 않음
         if (FD_ISSET(WorkersToMainPipe[READ_END], &rset)) {
-            lock_guard<mutex> pipeLock(WorkersToMainWriteEndMutex);
-            ChatServer::DestroySigleton();
+            lock_guard<mutex> pipeLock(WorkersToMainWriteEndMutex); // Writing 끝날 때까지 대기
+            DestroySigleton();
             break;    
         }
 
@@ -167,7 +168,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 {
                     lock_guard<mutex> usersLock(UsersMutex);
                     Users.insert(user); // 유저 객체를 Users에 저장. 유저의 채팅방과 이름 관리에 사용함
-                    cout << "새로운 클라이언트 접속 " << user->PortAndIpAndNameToString() << endl;
+                    cout << "새로운 클라이언트 접속 " << user->PortAndIpAndNameIntoString() << endl;
                 }
 
                 // 소켓번호를 _clients에 저장. 읽기 이벤트를 받을 때 사용함
@@ -232,7 +233,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                     SocketsOnQueueAddable.wait(socketOnQueueLock); // 과거 메시지의 처리 완료를 기다림
 
                 // 클라이언트의 소켓번호를 다시 추가하여 해당 소켓의 새 메시지가 다시 메시지 처리 중임을 알림
-                SocketsOnQueue.insert(client); //
+                SocketsOnQueue.insert(client);
             }
             
             {
@@ -275,7 +276,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                     }
                         
                     // 유저 정보를 삭제
-                    cout << "클라이언트" + userFound->PortAndIpAndNameToString() + ": 상대방이 소켓을 닫았음" << endl;
+                    cout << "클라이언트" + userFound->PortAndIpAndNameIntoString() + ": 상대방이 소켓을 닫았음" << endl;
                     Users.erase(userFound);
                 }
             }
@@ -592,7 +593,7 @@ ChatServer::~ChatServer() {
 
     // pipe 정리
     if (WorkersToMainPipe[READ_END] != -1 && WorkersToMainPipe[WRITE_END] != -1) {
-        lock_guard<mutex> pipeLock(WorkersToMainWriteEndMutex);
+        // worker thread가 종료되어 경합 상황이 없음
         close(WorkersToMainPipe[READ_END]);
         close(WorkersToMainPipe[WRITE_END]);
         WorkersToMainPipe[READ_END] = -1;
