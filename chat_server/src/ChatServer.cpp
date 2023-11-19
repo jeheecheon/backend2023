@@ -181,11 +181,9 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             if (!FD_ISSET(client, &rset)) 
                 continue;
 
-            char data[65565];
+            char* data;
             int numRecv;
             short bytesToReceive;
-
-            memset(data, 0, sizeof(data));
 
             // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
             if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
@@ -197,6 +195,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             bytesToReceive = ntohs(bytesToReceive);
+            data = new char[bytesToReceive];
 
             // 나머지 메시지 데이터를 모두 읽어옴
             if (!CustomReceive(client, data, bytesToReceive, numRecv))
@@ -216,6 +215,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                     typeForProtobuf = make_shared<mju::Type>();
                     typeForProtobuf->ParseFromArray((const void*)data, numRecv);
                     typeForProtobuf->PrintDebugString();
+                    delete[] data;
                     continue;
                 }
                 else {
@@ -441,6 +441,8 @@ void ChatServer::HandleSmallWork() {
             }
         }
 
+        delete[] work.dataToParse;
+        
         {
             // 여기까지 도달했을 경우 메시지 처리가 완료된 경우이다.
             unique_lock<mutex> socketsOnQueueLock(SocketsOnQueueMutex);
