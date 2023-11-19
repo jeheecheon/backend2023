@@ -41,7 +41,7 @@ private:
     int _port; // 서버 port 번호
     bool _isOpened; // 서버소켓 오픈 여부
     bool _isBinded; // 소켓 바인드 여부
-    unordered_set<int> _clients; // 서버와 연결된 클라이언트
+    vector<int> _clients; // 서버와 연결된 클라이언트
     vector<thread> _workers; ///< Worker Threads
     unordered_set<int> _willClose; // 종료 예정인 클라이언트 소켓 set
 

@@ -172,23 +172,23 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 }
 
                 // 소켓번호를 _clients에 저장. 읽기 이벤트를 받을 때 사용함
-                _clients.insert(clientSock);
+                _clients.push_back(clientSock);
             }
         }
 
         // 클라이언트 소켓에 읽기 이벤트가 발생한 게 있는지
-        for (auto& client : _clients) {
-            if (!FD_ISSET(client, &rset)) 
+        for (int i = 0; i < _clients.size(); ++i) {
+            if (!FD_ISSET(_clients[i], &rset)) 
                 continue;
 
-            char data[65565];
+            char* data;
             int numRecv;
             short bytesToReceive;
 
-            memset(data, 0, sizeof(data));
+            memset(&bytesToReceive, 0, sizeof(bytesToReceive));
 
             // 데이터의 크기가 담긴 첫 두 바이트를 읽어옴
-            if (!CustomReceive(client, &bytesToReceive, sizeof(bytesToReceive), numRecv))
+            if (!CustomReceive(_clients[i], &bytesToReceive, sizeof(bytesToReceive), numRecv))
                 continue;
 
             if (numRecv != 2) {
@@ -197,9 +197,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             bytesToReceive = ntohs(bytesToReceive);
+            data = new char[bytesToReceive + 1];
+            memset(data, 0, bytesToReceive + 1);
 
             // 나머지 메시지 데이터를 모두 읽어옴
-            if (!CustomReceive(client, data, bytesToReceive, numRecv))
+            if (!CustomReceive(_clients[i], data, bytesToReceive, numRecv))
                 continue;
             if (numRecv != bytesToReceive) {
                 cerr << "메시지 일부 손실되었음..." << endl;
@@ -207,7 +209,7 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             }
 
             SmallWork work;
-            work.dataOwner = client;
+            work.dataOwner = _clients[i];
             work.dataToParse = data;
 
             // Protobuf 포맷
@@ -216,6 +218,8 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                     typeForProtobuf = make_shared<mju::Type>();
                     typeForProtobuf->ParseFromArray((const void*)data, numRecv);
                     typeForProtobuf->PrintDebugString();
+                    delete[] data;
+                    --i;
                     continue;
                 }
                 else {
@@ -229,11 +233,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
                 unique_lock<mutex> socketOnQueueLock(SocketsOnQueueMutex);
 
                 // 클라이언트 소켓의 과거 메시지가 아직 처리 중인지 확인
-                while (SocketsOnQueue.find(client) != SocketsOnQueue.end()) 
+                while (SocketsOnQueue.find(_clients[i]) != SocketsOnQueue.end()) 
                     SocketsOnQueueAddable.wait(socketOnQueueLock); // 과거 메시지의 처리 완료를 기다림
 
                 // 클라이언트의 소켓번호를 다시 추가하여 해당 소켓의 새 메시지가 다시 메시지 처리 중임을 알림
-                SocketsOnQueue.insert(client);
+                SocketsOnQueue.insert(_clients[i]);
             }
             
             {
@@ -251,7 +255,11 @@ bool ChatServer::Start(int numOfWorkerThreads) {
             close(clientSock);
 
             // 유저 소켓을 읽기이벤트 목록 자료구조에서 제거
-            _clients.erase(clientSock);
+            for (vector<int>::iterator it = _clients.begin(); it != _clients.end(); ++it) 
+                if (*it == clientSock) {
+                    _clients.erase(it);
+                    break;
+                }
 
             shared_ptr<User> userFound;
 
@@ -441,6 +449,8 @@ void ChatServer::HandleSmallWork() {
             }
         }
 
+        delete[] work.dataToParse;
+        
         {
             // 여기까지 도달했을 경우 메시지 처리가 완료된 경우이다.
             unique_lock<mutex> socketsOnQueueLock(SocketsOnQueueMutex);
@@ -498,7 +508,7 @@ bool ChatServer::CustomReceive(int clientSock, void* buf, size_t size, int& numR
     } else if (size < 0)
         return false;
 
-    numRecv = recv(clientSock, buf, size, MSG_DONTWAIT);
+    numRecv = recv(clientSock, buf, size, 0);
 
     if (numRecv == 0) {
         {
