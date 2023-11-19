@@ -107,7 +107,21 @@ void OnCsName(int clientSock, const void* data) {
         memcpy(dataToSend + 2 + typeString.length() + 2, sysMessageString.c_str(), sysMessageString.length());
 
         // 데이터 전송
-        ChatServer::CustomSend(clientSock, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+        // ChatServer::CustomSend(clientSock, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+        // 데이터 전송
+        {
+            lock_guard<mutex> usersLock(ChatServer::UsersMutex);
+            {
+                lock_guard<mutex> roomsLock(ChatServer::RoomsMutex);
+
+                if (user->roomThisUserIn == nullptr)
+                    ChatServer::CustomSend(clientSock, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+                else {
+                    for (auto& u : user->roomThisUserIn->usersInThisRoom) 
+                        ChatServer::CustomSend(u->socketNumber, dataToSend, 2 + typeString.length() + 2 + sysMessageString.length());
+                }
+            }
+        }
 
         delete[] dataToSend;
     }
