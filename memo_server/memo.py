@@ -8,15 +8,11 @@ from flask import abort, Flask, make_response, render_template, Response, redire
 
 app = Flask(__name__)
 
-
-naver_client_id = '본인 app 의 것으로 교체할 것'
-naver_client_secret = '본인 app 의 것으로 교체할 것'
-naver_redirect_uri = '''
-  본인 app 의 것으로 교체할 것.
-  여기 지정된 url 이 http://localhost:8000/auth 처럼 /auth 인 경우
-  아래 onOAuthAuthorizationCodeRedirected() 에 @app.route('/auth') 태깅한 것처럼 해야 함
-'''
-
+naver_client_id = 'Z0Taie9OYDDditUhF4GC' # Client ID
+naver_client_secret = 'WRGUdnVAQE' # Client Secret
+naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청 url
+naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url
+naver_redirect_uri = 'http://localhost:8000/naver-oauth' # redirect url
 
 @app.route('/')
 def home():
@@ -65,26 +61,42 @@ def onLogin():
 # 아래는 Redirect URI 로 등록된 경우 호출된다.
 # 만일 본인의 Redirect URI 가 http://localhost:8000/auth 의 경우처럼 /auth 대신 다른 것을
 # 사용한다면 아래 @app.route('/auth') 의 내용을 그 URL 로 바꿀 것
-@app.route('/auth')
+@app.route('/naver-oauth')
 def onOAuthAuthorizationCodeRedirected():
     # TODO: 아래 1 ~ 4 를 채워 넣으시오.
 
     # 1. redirect uri 를 호출한 request 로부터 authorization code 와 state 정보를 얻어낸다.
-
-
+    authorization_code = request.args.get('code')
+    state = request.args.get('state')
 
     # 2. authorization code 로부터 access token 을 얻어내는 네이버 API 를 호출한다.
-
-
+    url_encoded = urllib.parse.urlencode({
+        'grant_type': 'authorization_code',
+        'client_id': naver_client_id,
+        'client_secret': naver_client_secret,
+        'code': authorization_code,
+        'state': state
+    })
+    token_response = requests.post(url = f'{naver_token_url}?{url_encoded}')
+    json_response = token_response.json();
+    access_token = json_response.get('access_token');
 
     # 3. 얻어낸 access token 을 이용해서 프로필 정보를 반환하는 API 를 호출하고,
     #    유저의 고유 식별 번호를 얻어낸다.
-
+    user_response = requests.get(
+        url = naver_user_url, 
+        headers = {
+            'Authorization': f'Bearer {access_token}'
+        }
+    )
+    user_response_json = user_response.json()
+    response_json = user_response_json.get('response')
+    id_json = response_json.get('id')
+    name_json = response_json.get('name')
 
     # 4. 얻어낸 user id 와 name 을 DB 에 저장한다.
-    user_id = None
-    user_name = None
-
+    user_id = id_json
+    user_name = name_json
 
     # 5. 첫 페이지로 redirect 하는데 로그인 쿠키를 설정하고 보내준다.
     response = redirect('/')
@@ -124,4 +136,4 @@ def post_new_memo():
 
 
 if __name__ == '__main__':
-    app.run('0.0.0.0', port=9135, debug=True)
+    app.run('0.0.0.0', port=8000, debug=True)
