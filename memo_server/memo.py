@@ -1,8 +1,8 @@
 from http import HTTPStatus
 import random
 import requests
-import json
 import urllib
+import oracledb
 
 from flask import abort, Flask, make_response, render_template, Response, redirect, request
 
@@ -14,6 +14,9 @@ naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청
 naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url
 naver_redirect_uri = 'http://localhost:8000/naver-oauth' # redirect url
 
+connect_params = oracledb.ConnectParams(host="localhost", port=1521, service_name="XEPDB1")
+connection = oracledb.connect(user="SYSTEM", password='ghkfud', params=connect_params)
+
 @app.route('/')
 def home():
     # 쿠기를 통해 이전에 로그인 한 적이 있는지를 확인한다.
@@ -24,13 +27,20 @@ def home():
     name = None
 
     ####################################################
-    # TODO: 아래 부분을 채워 넣으시오.
-    #       userId 로부터 DB 에서 사용자 이름을 얻어오는 코드를 여기에 작성해야 함
-
-
-
+    # userId 로부터 DB 에서 사용자 이름을 얻어오는 코드를 여기에 작성해야 함
+    if userId is not None and userId is not '':
+        with connection.cursor() as cur:
+            try:
+                cur.execute("""
+                            SELECT USER_NAME FROM APP_USER WHERE USER_ID = :id
+                            """,
+                            id=userId)
+                result = cur.fetchone()
+                name = result[0] if result else None
+            except Exception as e:
+                print(f"ERROR during FETCH-ing user name: {e}")
+                raise
     ####################################################
-
 
     # 이제 클라에게 전송해 줄 index.html 을 생성한다.
     # template 로부터 받아와서 name 변수 값만 교체해준다.
@@ -63,8 +73,6 @@ def onLogin():
 # 사용한다면 아래 @app.route('/auth') 의 내용을 그 URL 로 바꿀 것
 @app.route('/naver-oauth')
 def onOAuthAuthorizationCodeRedirected():
-    # TODO: 아래 1 ~ 4 를 채워 넣으시오.
-
     # 1. redirect uri 를 호출한 request 로부터 authorization code 와 state 정보를 얻어낸다.
     authorization_code = request.args.get('code')
     state = request.args.get('state')
@@ -91,12 +99,20 @@ def onOAuthAuthorizationCodeRedirected():
     )
     user_response_json = user_response.json()
     response_json = user_response_json.get('response')
-    id_json = response_json.get('id')
-    name_json = response_json.get('name')
+    user_id = response_json.get('id')
+    user_name = response_json.get('name')
 
     # 4. 얻어낸 user id 와 name 을 DB 에 저장한다.
-    user_id = id_json
-    user_name = name_json
+    with connection.cursor() as cur:
+        try:
+            cur.execute("""
+                INSERT INTO APP_USER (USER_ID, USER_NAME)
+                VALUES (:id, :name)""",
+                id=user_id, name=user_name)
+            connection.commit()
+        except Exception as e:
+            print(f"ERROR during INSERT: {e}")
+            raise
 
     # 5. 첫 페이지로 redirect 하는데 로그인 쿠키를 설정하고 보내준다.
     response = redirect('/')
@@ -111,8 +127,17 @@ def get_memos():
     if not userId:
         return redirect('/')
 
-    # TODO: DB 에서 해당 userId 의 메모들을 읽어오도록 아래를 수정한다.
     result = []
+    with connection.cursor() as cur:
+        try:
+            rows = cur.execute("select * from MEMO")
+            for row in rows.fetchall():
+                result.append({
+                    'text': row[2]
+                })
+        except Exception as e:
+            print(f"ERROR during FETCH-ing posts: {e}")
+            raise
 
     # memos라는 키 값으로 메모 목록 보내주기
     return {'memos': result}
@@ -129,11 +154,23 @@ def post_new_memo():
     if not request.is_json:
         abort(HTTPStatus.BAD_REQUEST)
 
-    # TODO: 클라이언트로부터 받은 JSON 에서 메모 내용을 추출한 후 DB에 userId 의 메모로 추가한다.
+    # 클라이언트로부터 받은 JSON 에서 메모 내용을 추출한 후 DB에 userId 의 메모로 추가한다.
+    text = request.json.get('text')
+    print(text)
 
-    #
+    with connection.cursor() as cur:
+        try:
+            cur.execute("""
+                        INSERT INTO MEMO (MEMO_ID, USER_ID, CONTENT) 
+                        VALUES (MEMO_ID_SEQ.NEXTVAL, :id, :content)
+                        """,
+                        id=userId, content=text)
+            connection.commit()
+        except Exception as e:
+            print(f"ERROR during INSERT-ing a post: {e}")
+            raise
+    
     return '', HTTPStatus.OK
-
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=8000, debug=True)
