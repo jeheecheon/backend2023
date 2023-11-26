@@ -2,7 +2,7 @@ from http import HTTPStatus
 import random
 import requests
 import urllib
-import oracledb
+import mysql.connector as database
 
 from flask import abort, Flask, make_response, render_template, Response, redirect, request
 
@@ -14,8 +14,11 @@ naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청
 naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url
 naver_redirect_uri = 'http://localhost:8000/naver-oauth' # redirect url
 
-connect_params = oracledb.ConnectParams(host="localhost", port=1521, service_name="XEPDB1")
-connection = oracledb.connect(user="SYSTEM", password='ghkfud', params=connect_params)
+connection = database.connect(
+    user='root',
+    password='ghkfud',
+    host='localhost',
+    database='memo_db')
 
 @app.route('/')
 def home():
@@ -31,10 +34,7 @@ def home():
     if userId is not None and userId is not '':
         with connection.cursor() as cur:
             try:
-                cur.execute("""
-                            SELECT USER_NAME FROM APP_USER WHERE USER_ID = :id
-                            """,
-                            id=userId)
+                cur.execute("SELECT USER_NAME FROM APP_USER WHERE USER_ID = %s", (userId,))
                 result = cur.fetchone()
                 name = result[0] if result else None
             except Exception as e:
@@ -105,10 +105,8 @@ def onOAuthAuthorizationCodeRedirected():
     # 4. 얻어낸 user id 와 name 을 DB 에 저장한다.
     with connection.cursor() as cur:
         try:
-            cur.execute("""
-                INSERT INTO APP_USER (USER_ID, USER_NAME)
-                VALUES (:id, :name)""",
-                id=user_id, name=user_name)
+            cur.execute("INSERT INTO APP_USER (USER_ID, USER_NAME) VALUES (%s, %s)",
+                (user_id, user_name))
             connection.commit()
         except Exception as e:
             print(f"ERROR during INSERT: {e}")
@@ -130,10 +128,10 @@ def get_memos():
     result = []
     with connection.cursor() as cur:
         try:
-            rows = cur.execute("select * from MEMO")
-            for row in rows.fetchall():
+            cur.execute("select CONTENT from MEMO where USER_ID = %s", (userId,))
+            for row in cur.fetchall():
                 result.append({
-                    'text': row[2]
+                    'text': row[0]
                 })
         except Exception as e:
             print(f"ERROR during FETCH-ing posts: {e}")
@@ -160,11 +158,8 @@ def post_new_memo():
 
     with connection.cursor() as cur:
         try:
-            cur.execute("""
-                        INSERT INTO MEMO (MEMO_ID, USER_ID, CONTENT) 
-                        VALUES (MEMO_ID_SEQ.NEXTVAL, :id, :content)
-                        """,
-                        id=userId, content=text)
+            cur.execute("INSERT INTO MEMO (USER_ID, CONTENT) VALUES (%s, %s)",
+                        (userId, text))
             connection.commit()
         except Exception as e:
             print(f"ERROR during INSERT-ing a post: {e}")
