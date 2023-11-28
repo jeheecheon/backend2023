@@ -39,26 +39,26 @@ memp.py
 띄워놓은 mariadb 접속은 mysql.connector 모듈을 이용하였습니다.  
 모듈 설치 : pip3 install mysql-connector-python  
   
-# db coneection 옵션을 DATABASE_CONFIG 변수에 저장
-DATABASE_CONFIG = {
-    'user': 'root',
-    'password': 'ghkfud',
-    'host': '172.31.1.135',
-    'database': 'memo_db'
-}
-
-# db connection을 열고 app context에 저장하여 한 request동안 사용함
-def get_db():
-    if 'db' not in g:
-        g.db = database.connect(**DATABASE_CONFIG)
-    return g.db
-
-# request processing이 끝날 때 자동으로 호출되어 db connection 닫아줌
-@app.teardown_appcontext
-def close_db(error):
-    db = g.pop('db', None)
-    if db is not None:
-        db.close()
+아래 코드로 db coneection 옵션을 DATABASE_CONFIG 변수에 저장하였습니다  
+DATABASE_CONFIG = {  
+    'user': 'root',  
+    'password': 'ghkfud',  
+    'host': '172.31.1.135',  
+    'database': 'memo_db'  
+}  
+  
+아래 함수를 통해 db connection을 열고 app context에 저장하여 한 request동안 사용하도록 하였습니다  
+def get_db():  
+    if 'db' not in g:  
+        g.db = database.connect(**DATABASE_CONFIG)  
+    return g.db  
+  
+request processing이 끝날 때 자동으로 호출되어 db connection 닫아주도록 하였습니다.  
+@app.teardown_appcontext  
+def close_db(error):  
+    db = g.pop('db', None)  
+    if db is not None:  
+        db.close()  
 
 아래와 같이 네이버 oauth api와 연결하기 위한 값들을 변수로 매핑했습니다.  
 naver_client_id = 'Z0Taie9OYDDditUhF4GC' # Client ID  
