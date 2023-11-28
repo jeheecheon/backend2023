@@ -12,7 +12,7 @@ naver_client_id = 'Z0Taie9OYDDditUhF4GC' # Client ID
 naver_client_secret = 'WRGUdnVAQE' # Client Secret
 naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청 url
 naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url
-naver_redirect_uri = 'http://localhost:8000/naver-oauth' # redirect url
+naver_redirect_uri = 'http://60182228-lb-166353545.ap-northeast-2.elb.amazonaws.com/memo/naver-oauth' # redirect url
 
 connection = database.connect(
     user='root',
