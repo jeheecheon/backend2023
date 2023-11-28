@@ -3,3 +3,6 @@
 # 학생 정보
 - 이름: 천제희
 - 학번: 60182228
+
+memo_server README:  
+https://github.com/jeheecheon/backend2023/tree/main/memo_server
