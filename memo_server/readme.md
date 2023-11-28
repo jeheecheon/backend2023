@@ -39,19 +39,32 @@ memp.py
 띄워놓은 mariadb 접속은 mysql.connector 모듈을 이용하였습니다.  
 모듈 설치 : pip3 install mysql-connector-python  
   
-이후에 연결은 아래 코드를 통해 맺어주었습니다.  
-connection = database.connect(  
-    user='root',  
-    password='ghkfud',  
-    host='172.31.1.135',  
-    database='memo_db')  
-  
-이후 아래와 같이 네이버 oauth api와 연결하기 위한 값들을 변수로 매핑했습니다.  
-  
+# db coneection 옵션을 DATABASE_CONFIG 변수에 저장
+DATABASE_CONFIG = {
+    'user': 'root',
+    'password': 'ghkfud',
+    'host': '172.31.1.135',
+    'database': 'memo_db'
+}
+
+# db connection을 열고 app context에 저장하여 한 request동안 사용함
+def get_db():
+    if 'db' not in g:
+        g.db = database.connect(**DATABASE_CONFIG)
+    return g.db
+
+# request processing이 끝날 때 자동으로 호출되어 db connection 닫아줌
+@app.teardown_appcontext
+def close_db(error):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+아래와 같이 네이버 oauth api와 연결하기 위한 값들을 변수로 매핑했습니다.  
 naver_client_id = 'Z0Taie9OYDDditUhF4GC' # Client ID  
 naver_client_secret = 'WRGUdnVAQE' # Client Secret  
 naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청 url  
 naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url  
 naver_redirect_uri = 'http://60182228-lb-166353545.ap-northeast-2.elb.amazonaws.com/memo/naver-oauth' # redirect url  
   
-이후 코드 구현 코드는 각 주석 섹션에 알맞게 삽입하였습니다.  
+이후 코드 구현은 각 주석 섹션에 알맞게 삽입하였습니다.  
