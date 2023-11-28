@@ -17,7 +17,7 @@ naver_redirect_uri = 'http://localhost:8000/naver-oauth' # redirect url
 connection = database.connect(
     user='root',
     password='ghkfud',
-    host='localhost',
+    host='172.31.1.135',
     database='memo_db')
 
 @app.route('/')
@@ -166,6 +166,10 @@ def post_new_memo():
             raise
     
     return '', HTTPStatus.OK
+
+@app.route('/ip', methods=['GET'])
+def get_public_ip():
+    return urllib.request.urlopen("http://169.254.169.254/latest/meta-data/local-ipv4").read()
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=8000, debug=True)
