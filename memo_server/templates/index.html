@@ -49,6 +49,9 @@
     <script>
       // 페이지가 처음 로딩 되었을 때 호출된다.
       $(document).ready(function () {
+        naver_login_html = `<img src="` + window.location.pathname + `static/naver_login_button.png" width=200 onclick="onLogin()"></img>`
+        $("#login-box").append(naver_login_html)
+
         {% if name %}
           // 로그인 했다면 그 유저의 메모 리스트를 보여준다.
           showMemosList();
@@ -66,7 +69,7 @@
 
       // 로그인 버튼의 click event handler
       function onLogin() {
-        window.location.replace("/login");
+        window.location.replace(window.location.pathname + "login");
       }
 
       // 새 메모 버튼을 눌렀을 때 버튼이 토글되는 동작
@@ -86,7 +89,7 @@
         let text = $("#new-memo-text").val();
         $.ajax({
           type: "POST",
-          url: "/memo",
+          url: window.location.pathname + "memo",
           headers: {
             'Content-Type': 'application/json; charset=utf-8'
           },
@@ -110,7 +113,7 @@
       function showMemosList() {
         $.ajax({
           type: "GET",
-          url: "/memo",
+          url: window.location.pathname + "memo",
           data: {},
           success: function (response) {
             let memos_list = response["memos"];
@@ -151,7 +154,6 @@
       </div>
 
       <div id="login-box" style="display:none">
-        <img src="/static/naver_login_button.png" width=200 onclick="onLogin()"></img>
       </div>
 
       <div id="new-memo-box" class="form-post" style="display:none">
