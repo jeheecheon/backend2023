@@ -4,7 +4,7 @@ import requests
 import urllib
 import mysql.connector as database
 
-from flask import abort, Flask, make_response, render_template, Response, redirect, request
+from flask import abort, Flask, make_response, render_template, Response, redirect, request, g
 
 app = Flask(__name__)
 
@@ -14,11 +14,26 @@ naver_user_url = 'https://openapi.naver.com/v1/nid/me' # 회원 프로필 요청
 naver_token_url = 'https://nid.naver.com/oauth2.0/token' # 토큰 요청 url
 naver_redirect_uri = 'http://60182228-lb-166353545.ap-northeast-2.elb.amazonaws.com/memo/naver-oauth' # redirect url
 
-connection = database.connect(
-    user='root',
-    password='ghkfud',
-    host='172.31.1.135',
-    database='memo_db')
+# db coneection 옵션
+DATABASE_CONFIG = {
+    'user': 'root',
+    'password': 'ghkfud',
+    'host': '172.31.1.135',
+    'database': 'memo_db'
+}
+
+# db connection을 열고 app context에 저장하여 request동안 사용함
+def get_db():
+    if 'db' not in g:
+        g.db = database.connect(**DATABASE_CONFIG)
+    return g.db
+
+# request processing이 끝날 때 자동으로 호출되어 db connection 닫아줌
+@app.teardown_appcontext
+def close_db(error):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 @app.route('/')
 def home():
@@ -32,6 +47,7 @@ def home():
     ####################################################
     # userId 로부터 DB 에서 사용자 이름을 얻어오는 코드를 여기에 작성해야 함
     if userId is not None and userId is not '':
+        connection = get_db()
         with connection.cursor() as cur:
             try:
                 cur.execute("SELECT USER_NAME FROM APP_USER WHERE USER_ID = %s", (userId,))
@@ -103,6 +119,7 @@ def onOAuthAuthorizationCodeRedirected():
     user_name = response_json.get('name')
 
     # 4. 얻어낸 user id 와 name 을 DB 에 저장한다.
+    connection = get_db()
     with connection.cursor() as cur:
         try:
             cur.execute("INSERT INTO APP_USER (USER_ID, USER_NAME) VALUES (%s, %s)",
@@ -125,6 +142,8 @@ def get_memos():
         return redirect('/')
 
     result = []
+
+    connection = get_db()
     with connection.cursor() as cur:
         try:
             cur.execute("select CONTENT from MEMO where USER_ID = %s", (userId,))
@@ -153,8 +172,8 @@ def post_new_memo():
 
     # 클라이언트로부터 받은 JSON 에서 메모 내용을 추출한 후 DB에 userId 의 메모로 추가한다.
     text = request.json.get('text')
-    print(text)
 
+    connection = get_db()
     with connection.cursor() as cur:
         try:
             cur.execute("INSERT INTO MEMO (USER_ID, CONTENT) VALUES (%s, %s)",
