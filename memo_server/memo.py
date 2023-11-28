@@ -109,11 +109,10 @@ def onOAuthAuthorizationCodeRedirected():
                 (user_id, user_name))
             connection.commit()
         except Exception as e:
-            print(f"ERROR during INSERT: {e}")
-            raise
+            print(f"ERROR during INSERT: {e}") # 같은 user_id가 이미 등록되어 있을 수 있음
 
     # 5. 첫 페이지로 redirect 하는데 로그인 쿠키를 설정하고 보내준다.
-    response = redirect('/')
+    response = redirect('/memo')
     response.set_cookie('userId', user_id)
     return response
 
