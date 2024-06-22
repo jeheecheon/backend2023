@@ -1,9 +1,9 @@
 # 2023년 2학기 백엔드소프트웨개발
 백엔드소프트웨어개발 강의를 수강하며 개인 프로젝트 결과물
 
-## 두 가지 토이 프로젝트가 포함된 Repository.
+# ✌️두 가지 토이 프로젝트가 포함된 Repository.
 
-### 채팅 서버
+### ⌨️채팅 서버
 - /chat_server 폴더 아래에 프로젝트 위치함
 - C++ 콘솔앱, CLI
 - TCP Socket
@@ -11,7 +11,7 @@
 - 채팅방 생성/삭제/입장
 - 채팅 기능 
 
-### 간단 메모 웹앱
+### 📝간단 메모 웹앱
 - /memo_server 폴더 아래에 프로젝트 위치함
 - Python Flask backend + Server side rendered pages
 - AWS EC2 + Load balancer
