@@ -23,6 +23,6 @@
 - 메모장 사용자별 동기화
 
 유뷰트 영상: <a href="https://youtu.be/X57CByCkI40?si=qxveVJaJXtpxTOBu">
-링크 클릭</a>
+링크 클릭</a>  
 README: <a href="https://github.com/jeheecheon/backend2023/tree/main/memo_server">
 링크 클릭</a>
